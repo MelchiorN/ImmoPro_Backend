@@ -13,7 +13,17 @@ return new class extends Migration
     {
         Schema::create('historique_connexions', function (Blueprint $table) {
             $table->id();
+            $table->foreignUuid('user_id')->constrained('users')->onDelete('cascade');
+            $table->string('ip_address', 45)->nullable();
+            $table->string('user_agent')->nullable();
+            $table->string('device_type')->nullable();   // mobile, web, desktop
+            $table->string('plateforme')->nullable();    // iOS, Android, Web
+            $table->string('ville')->nullable();
+            $table->string('pays')->nullable();
+            $table->enum('statut', ['succes', 'echec'])->default('succes');
+            $table->timestamp('connected_at');
             $table->timestamps();
+            $table->index('user_id');
         });
     }
 

@@ -13,6 +13,16 @@ return new class extends Migration
     {
         Schema::create('preferences', function (Blueprint $table) {
             $table->id();
+            $table->foreignUuid('user_id')->constrained('users')->onDelete('cascade')->unique();
+            $table->boolean('notifications_email')->default(true);
+            $table->boolean('notifications_push')->default(true);
+            $table->boolean('notifications_sms')->default(false);
+            $table->string('langue', 10)->default('fr');
+            $table->string('devise', 10)->default('XOF');
+            $table->json('types_biens_preferes')->nullable();   // ["appartement","villa"]
+            $table->json('villes_preferees')->nullable();
+            $table->decimal('budget_min', 12, 2)->nullable();
+            $table->decimal('budget_max', 12, 2)->nullable();
             $table->timestamps();
         });
     }

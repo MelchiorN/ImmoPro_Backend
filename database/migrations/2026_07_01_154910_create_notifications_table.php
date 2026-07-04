@@ -12,8 +12,17 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('notifications', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('user_id')->constrained('users')->onDelete('cascade');
+            $table->string('type');                     // ex : "nouvelle_offre", "otp", "alerte_prix"
+            $table->string('titre');
+            $table->text('message');
+            $table->json('data')->nullable();           // données contextuelles (id bien, etc.)
+            $table->boolean('lu')->default(false);
+            $table->enum('canal', ['push', 'email', 'sms'])->default('push');
+            $table->timestamp('lu_at')->nullable();
             $table->timestamps();
+            $table->index(['user_id', 'lu']);
         });
     }
 
