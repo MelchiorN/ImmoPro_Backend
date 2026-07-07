@@ -11,13 +11,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
-class AuthController extends Controller
+class AgentAuthController extends Controller
 {
     /**
-     * POST /api/login
-     *
-     * Point d'entrée unique pour admin et agent.
-     * Le frontend redirige ensuite selon le champ `role` retourné.
+     * POST /api/agent/login
+     * Authentifie un agent par email + mot de passe.
      */
     public function login(Request $request): JsonResponse
     {
@@ -26,19 +24,17 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        // Cherche un admin ou un agent avec cet email
+        /** @var User|null $user */
         $user = User::where('email', $validated['email'])
-                    ->whereIn('role', ['admin', 'agent'])
+                    ->where('role', 'agent')
                     ->first();
 
-        // Identifiants invalides (utilisateur introuvable ou mauvais mdp)
         if (!$user || !Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Identifiants invalides.'],
+                'email' => 'Email ou mot de passe incorrect.',
             ]);
         }
 
-        // Compte bloqué ou suspendu
         if ($user->status === 'blocked') {
             return response()->json([
                 'message' => 'Votre compte a été bloqué. Contactez l\'administrateur.',
@@ -62,34 +58,28 @@ class AuthController extends Controller
             'connected_at' => Carbon::now(),
         ]);
 
-        // Nom du token selon le rôle
-        $tokenName = $user->role === 'admin' ? 'admin-token' : 'agent-token';
+        // Révoquer les anciens tokens agent
+        $user->tokens()->where('name', 'agent-token')->delete();
 
-        // Révoque les anciens tokens du même type pour éviter l'accumulation
-        $user->tokens()->where('name', $tokenName)->delete();
-
-        $token = $user->createToken($tokenName)->plainTextToken;
+        $token = $user->createToken('agent-token')->plainTextToken;
 
         return response()->json([
             'message' => 'Connexion réussie.',
             'token'   => $token,
-            'user'    => [
-                'id'              => $user->id,
-                'first_name'      => $user->first_name,
-                'last_name'       => $user->last_name,
-                'email'           => $user->email,
-                'telephone'       => $user->telephone,
-                'country'         => $user->country,
-                'city'            => $user->city,
-                'profile_picture' => $user->profile_picture,
-                'role'            => $user->role,   // 'admin' ou 'agent' — le frontend redirige ici
-                'status'          => $user->status,
-            ],
+            'user'    => $this->formatUser($user),
         ], 200);
     }
 
     /**
-     * POST /api/logout
+     * GET /api/agent/me
+     */
+    public function me(Request $request): JsonResponse
+    {
+        return response()->json($this->formatUser($request->user()), 200);
+    }
+
+    /**
+     * POST /api/agent/logout
      */
     public function logout(Request $request): JsonResponse
     {
@@ -98,11 +88,19 @@ class AuthController extends Controller
         return response()->json(['message' => 'Déconnexion réussie.'], 200);
     }
 
-    /**
-     * GET /api/me
-     */
-    public function me(Request $request): JsonResponse
+    private function formatUser(User $user): array
     {
-        return response()->json($request->user(), 200);
+        return [
+            'id'              => $user->id,
+            'first_name'      => $user->first_name,
+            'last_name'       => $user->last_name,
+            'email'           => $user->email,
+            'telephone'       => $user->telephone,
+            'country'         => $user->country,
+            'city'            => $user->city,
+            'profile_picture' => $user->profile_picture,
+            'role'            => $user->role,
+            'status'          => $user->status,
+        ];
     }
 }

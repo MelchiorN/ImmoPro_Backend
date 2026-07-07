@@ -14,6 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // CORS : autorise les requêtes cross-origin (mobile Flutter + frontend)
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+
+        // Alias de rôle — usage : ->middleware('role:admin') ou 'role:admin,agent'
+        $middleware->alias([
+            'role' => \App\Http\Middleware\CheckRole::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -69,4 +69,16 @@ class User extends Authenticatable
     {
         return $this->hasMany(HistoriqueConnexion::class);
     }
+
+    // ─── Biens immobiliers ────────────────────────────────────────────────────
+
+    public function biens(): HasMany
+    {
+        return $this->hasMany(\App\Models\Bien::class);
+    }
+
+    public function biensAgentAssigne(): HasMany
+    {
+        return $this->hasMany(\App\Models\Bien::class, 'agent_id');
+    }
 }
