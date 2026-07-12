@@ -48,8 +48,26 @@ class BienResource extends JsonResource
                 'id'         => $this->proprietaire->id,
                 'first_name' => $this->proprietaire->first_name,
                 'last_name'  => $this->proprietaire->last_name,
+                'email'      => $this->proprietaire->email,
                 'telephone'  => $this->proprietaire->telephone,
             ]),
+
+            // Agent assigné
+            'agent_id'         => $this->agent_id,
+            'agent'            => $this->whenLoaded('agent', fn () => $this->agent ? [
+                'id'         => $this->agent->id,
+                'first_name' => $this->agent->first_name,
+                'last_name'  => $this->agent->last_name,
+                'email'      => $this->agent->email,
+            ] : null),
+
+            // Rapport lié
+            'rapport'          => $this->whenLoaded('rapport', fn () => $this->rapport ? [
+                'id'        => $this->rapport->id,
+                'statut'    => $this->rapport->statut,
+                'titre'     => $this->rapport->titre,
+                'soumis_le' => $this->rapport->soumis_le?->toIso8601String(),
+            ] : null),
 
             // Relations
             'medias'           => MediaBienResource::collection(

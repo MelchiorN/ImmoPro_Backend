@@ -21,5 +21,13 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Pour les routes API, retourner du JSON 401 au lieu de rediriger vers route('login')
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Non authentifié. Veuillez vous connecter.',
+                ], 401);
+            }
+        });
     })->create();

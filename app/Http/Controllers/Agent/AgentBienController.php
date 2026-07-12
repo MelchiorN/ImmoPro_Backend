@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\BienListResource;
 use App\Http\Resources\BienResource;
 use App\Models\Bien;
+use App\Models\DocumentBien;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class AgentBienController extends Controller
 {
@@ -16,7 +18,7 @@ class AgentBienController extends Controller
     // GET /api/agent/biens
     // Pool de biens accessibles à l'agent connecté :
     //   - statut=en_attente  + agent_id IS NULL  → onglet "Non assignés"
-    //   - statut=en_attente  + agent_id = moi    → onglet "En cours"
+    //   - statut=en_cours    + agent_id = moi    → onglet "En cours"
     //   - statut=publie|rejete + agent_id = moi  → onglet "Terminés"
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -25,7 +27,7 @@ class AgentBienController extends Controller
         $agentId   = $request->user()->id;
         $onglet    = $request->query('onglet', 'non_assigne'); // non_assigne | en_cours | termine
 
-        $query = Bien::with(['medias', 'proprietaire'])
+        $query = Bien::with(['medias', 'proprietaire', 'rapport'])
             ->when(
                 $request->query('type_bien'),
                 fn ($q, $t) => $q->where('type_bien', $t)
@@ -50,8 +52,8 @@ class AgentBienController extends Controller
                 break;
 
             case 'en_cours':
-                // Biens en attente que cet agent a pris en charge
-                $query->where('statut', 'en_attente')
+                // Biens pris en charge par cet agent (statut en_cours)
+                $query->where('statut', 'en_cours')
                       ->where('agent_id', $agentId);
                 break;
 
@@ -62,7 +64,6 @@ class AgentBienController extends Controller
                 break;
 
             default:
-                // Fallback : non assignés
                 $query->where('statut', 'en_attente')
                       ->whereNull('agent_id');
         }
@@ -78,6 +79,102 @@ class AgentBienController extends Controller
                 'current_page' => $biens->currentPage(),
                 'last_page'    => $biens->lastPage(),
                 'onglet'       => $onglet,
+            ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/agent/stats
+    // Dashboard : KPIs + biens en cours + visites à venir
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function stats(Request $request): JsonResponse
+    {
+        $agentId = $request->user()->id;
+
+        // ── Compteurs ─────────────────────────────────────────────────────────
+        $nonAssigne  = Bien::where('statut', 'en_attente')->whereNull('agent_id')->count();
+        $enCours     = Bien::where('statut', 'en_cours')->where('agent_id', $agentId)->count();
+        $publies     = Bien::where('statut', 'publie')->where('agent_id', $agentId)->count();
+        $rejetes     = Bien::where('statut', 'rejete')->where('agent_id', $agentId)->count();
+        $totalTraite = $publies + $rejetes;
+        $tauxValid   = $totalTraite > 0 ? round($publies / $totalTraite * 100) : null;
+
+        // Visites
+        $visitesTotal     = \App\Models\Visite::where('agent_id', $agentId)->count();
+        $visitesPlanifiees = \App\Models\Visite::where('agent_id', $agentId)
+            ->whereIn('statut', ['planifiee', 'confirmee'])
+            ->where('date_visite', '>=', now())
+            ->count();
+
+        // Prochaine visite
+        $prochaineVisite = \App\Models\Visite::with(['bien'])
+            ->where('agent_id', $agentId)
+            ->whereIn('statut', ['planifiee', 'confirmee'])
+            ->where('date_visite', '>=', now())
+            ->orderBy('date_visite')
+            ->first();
+
+        $prochaineHeure = $prochaineVisite?->date_visite
+            ? \Carbon\Carbon::parse($prochaineVisite->date_visite)->format('H\hi')
+            : null;
+
+        // Rapports brouillons
+        $rapportsBrouillons = \App\Models\Rapport::where('agent_id', $agentId)
+            ->where('statut', 'brouillon')
+            ->count();
+
+        // ── Biens en cours récents (tableau) ──────────────────────────────────
+        $biensEnCours = Bien::with(['medias', 'proprietaire'])
+            ->where('statut', 'en_cours')
+            ->where('agent_id', $agentId)
+            ->latest()
+            ->limit(5)
+            ->get()
+            ->map(fn ($b) => [
+                'id'      => $b->id,
+                'titre'   => $b->titre,
+                'adresse' => $b->adresse,
+                'photo'   => $b->medias?->firstWhere('est_principale', true)?->url
+                             ?? $b->medias?->first()?->url,
+                'client'  => $b->proprietaire ? [
+                    'nom'   => trim(($b->proprietaire->first_name ?? '') . ' ' . ($b->proprietaire->last_name ?? '')),
+                    'email' => $b->proprietaire->email,
+                ] : null,
+                'priorite'   => $b->priorite,
+                'created_at' => $b->created_at?->toIso8601String(),
+            ]);
+
+        // ── Visites à venir (mini-calendrier) ─────────────────────────────────
+        $upcomingVisites = \App\Models\Visite::with(['bien'])
+            ->where('agent_id', $agentId)
+            ->whereIn('statut', ['planifiee', 'confirmee'])
+            ->where('date_visite', '>=', now())
+            ->orderBy('date_visite')
+            ->limit(5)
+            ->get()
+            ->map(fn ($v) => [
+                'id'           => $v->id,
+                'date_visite'  => $v->date_visite?->toIso8601String(),
+                'statut'       => $v->statut,
+                'bien_titre'   => $v->bien?->titre,
+                'bien_adresse' => $v->bien?->adresse,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'kpis' => [
+                    'non_assigne'        => $nonAssigne,
+                    'en_cours'           => $enCours,
+                    'publies'            => $publies,
+                    'visites_planifiees' => $visitesPlanifiees,
+                    'taux_validation'    => $tauxValid,
+                    'prochaine_visite'   => $prochaineHeure,
+                    'rapports_brouillons'=> $rapportsBrouillons,
+                ],
+                'biens_en_cours'   => $biensEnCours,
+                'upcoming_visites' => $upcomingVisites,
             ],
         ]);
     }
@@ -107,7 +204,7 @@ class AgentBienController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/agent/biens/{id}/claim
-    // L'agent prend en charge un bien non assigné (verrou optimiste)
+    // L'agent prend en charge un bien non assigné → statut passe à "en_cours"
     // ─────────────────────────────────────────────────────────────────────────
 
     public function claim(Request $request, string $id): JsonResponse
@@ -127,7 +224,10 @@ class AgentBienController extends Controller
                 return null; // déjà pris ou inexistant
             }
 
-            $bien->update(['agent_id' => $agentId]);
+            $bien->update([
+                'agent_id' => $agentId,
+                'statut'   => 'en_cours',
+            ]);
             return $bien;
         });
 
@@ -146,25 +246,16 @@ class AgentBienController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /api/agent/biens/{id}/release
-    // L'agent libère un bien qu'il a pris (remet dans le pool)
+    // POST /api/agent/biens/{id}/release  — DÉSACTIVÉ
+    // Un agent ne peut plus libérer un bien une fois pris en charge.
     // ─────────────────────────────────────────────────────────────────────────
 
     public function release(Request $request, string $id): JsonResponse
     {
-        $agentId = $request->user()->id;
-
-        $bien = Bien::where('id', $id)
-                    ->where('agent_id', $agentId)
-                    ->where('statut', 'en_attente')
-                    ->firstOrFail();
-
-        $bien->update(['agent_id' => null]);
-
         return response()->json([
-            'success' => true,
-            'message' => 'Bien remis dans le pool. Il est de nouveau disponible.',
-        ]);
+            'success' => false,
+            'message' => 'Un bien pris en charge ne peut plus être libéré. Contactez un administrateur si nécessaire.',
+        ], 403);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -181,10 +272,10 @@ class AgentBienController extends Controller
 
         $agentId = $request->user()->id;
 
-        // L'agent ne peut agir que sur les biens qu'il a pris en charge
+        // L'agent ne peut agir que sur les biens qu'il a pris en charge (statut en_cours)
         $bien = Bien::where('id', $id)
                     ->where('agent_id', $agentId)
-                    ->where('statut', 'en_attente')
+                    ->where('statut', 'en_cours')
                     ->firstOrFail();
 
         $nouveauStatut = $request->input('statut');
@@ -224,7 +315,7 @@ class AgentBienController extends Controller
                           ->whereNull('agent_id')
                           ->count();
 
-        $enCours = Bien::where('statut', 'en_attente')
+        $enCours = Bien::where('statut', 'en_cours')
                        ->where('agent_id', $agentId)
                        ->count();
 
@@ -236,5 +327,35 @@ class AgentBienController extends Controller
             'success' => true,
             'data'    => compact('nonAssigne', 'enCours', 'termine'),
         ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/agent/documents/{docId}
+    // Téléchargement sécurisé d'un document privé (disk local)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function downloadDocument(Request $request, string $docId)
+    {
+        $agentId = $request->user()->id;
+
+        // Charger le document avec le bien pour vérifier les droits
+        $document = DocumentBien::with('bien')->findOrFail($docId);
+
+        // L'agent doit être assigné au bien (ou le bien doit être non assigné)
+        $bien = $document->bien;
+        if ($bien->agent_id !== null && $bien->agent_id !== $agentId) {
+            abort(403, 'Accès refusé à ce document.');
+        }
+
+        // Vérifier que le fichier existe sur le disk local
+        if (! Storage::disk('local')->exists($document->chemin)) {
+            abort(404, 'Fichier introuvable.');
+        }
+
+        return Storage::disk('local')->response(
+            $document->chemin,
+            $document->nom_original,
+            ['Content-Type' => $document->mime_type]
+        );
     }
 }

@@ -7,19 +7,27 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class DocumentBienResource extends JsonResource
 {
+    /** Labels lisibles par type de document. */
+    private const TYPE_LABELS = [
+        'titre_foncier'  => 'Titre Foncier',
+        'piece_identite' => 'Pièce d\'Identité',
+        'plan_cadastral' => 'Plan Cadastral',
+    ];
+
     public function toArray(Request $request): array
     {
         return [
             'id'           => $this->id,
             'type'         => $this->type,
+            'label'        => self::TYPE_LABELS[$this->type] ?? ucfirst(str_replace('_', ' ', $this->type)),
             'nom_original' => $this->nom_original,
             'statut'       => $this->statut,
             'mime_type'    => $this->mime_type,
             'taille'       => $this->taille,
-            // URL privée uniquement si c'est le propriétaire ou admin/agent
+            // URL de téléchargement via l'API (sécurisée, authentifiée)
             'url'          => $this->when(
                 $this->canViewDocument($request),
-                fn () => $this->url_privee
+                fn () => url("/api/agent/documents/{$this->id}")
             ),
         ];
     }
@@ -33,3 +41,4 @@ class DocumentBienResource extends JsonResource
             || in_array($user->role, ['admin', 'agent']);
     }
 }
+

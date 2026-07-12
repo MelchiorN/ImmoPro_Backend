@@ -18,11 +18,11 @@ class BienAdminController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Bien::with(['medias', 'proprietaire'])
+        $query = Bien::with(['medias', 'proprietaire', 'rapport', 'agent'])
             ->when(
                 $request->query('statut'),
                 fn ($q, $s) => $q->where('statut', $s),
-                fn ($q)     => $q->whereIn('statut', ['en_attente', 'publie', 'rejete'])
+                fn ($q)     => $q->whereIn('statut', ['en_attente', 'en_cours', 'publie', 'rejete'])
             )
             ->when(
                 $request->query('type_bien'),
@@ -58,7 +58,7 @@ class BienAdminController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $bien = Bien::with(['medias', 'documents', 'proprietaire'])
+        $bien = Bien::with(['medias', 'documents', 'proprietaire', 'agent', 'rapport'])
             ->findOrFail($id);
 
         return response()->json([
@@ -81,9 +81,10 @@ class BienAdminController extends Controller
 
         $bien = Bien::findOrFail($id);
 
-        // Transitions autorisées
+        // Transitions autorisées (en_cours géré via rapports)
         $transitionsAutorisees = [
             'en_attente' => ['publie', 'rejete'],
+            'en_cours'   => ['publie', 'rejete'],
             'rejete'     => ['publie'],
             'publie'     => ['archive', 'rejete'],
             'archive'    => ['publie'],
@@ -102,9 +103,9 @@ class BienAdminController extends Controller
         $payload = ['statut' => $nouveauStatut];
 
         if ($nouveauStatut === 'publie') {
-            $payload['publie_le']    = now();
-            $payload['agent_id']     = $request->user()->id;
-            $payload['note_admin']   = null;
+            $payload['publie_le']  = now();
+            $payload['note_admin'] = null;
+            // On ne modifie pas agent_id ici : l'agent déjà assigné reste associé au bien.
         }
 
         if ($nouveauStatut === 'rejete') {

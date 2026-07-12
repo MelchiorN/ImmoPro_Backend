@@ -1,14 +1,19 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\AdminRapportController;
+use App\Http\Controllers\Agent\AgentVisiteController;
+use App\Http\Controllers\Agent\AgentRapportController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\ClientAuthController;
 use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Controllers\Admin\AdminStatsController;
 use App\Http\Controllers\Admin\AgentController;
 use App\Http\Controllers\Admin\BienAdminController;
 use App\Http\Controllers\Agent\AgentBienController;
 use App\Http\Controllers\Bien\BienController;
 use App\Http\Controllers\Bien\BienPublicController;
+use App\Http\Controllers\Client\ClientProfileController;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health check (public)
@@ -57,8 +62,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Profil & déconnexion — Client ─────────────────────────────────────────
     Route::middleware('role:client')->group(function () {
-        Route::get ('/client/me',     [ClientAuthController::class, 'me']);
-        Route::post('/client/logout', [ClientAuthController::class, 'logout']);
+        Route::get ('/client/me',           [ClientAuthController::class,    'me']);
+        Route::post('/client/logout',        [ClientAuthController::class,    'logout']);
+        // Profil client
+        Route::put ('/client/profile',       [ClientProfileController::class, 'update']);
+        Route::put ('/client/password',      [ClientProfileController::class, 'changePassword']);
+        Route::post('/client/profile/photo', [ClientProfileController::class, 'updatePhoto']);
     });
 
 
@@ -95,11 +104,60 @@ Route::middleware('auth:sanctum')->group(function () {
 
    
     Route::middleware('role:agent')->prefix('agent/biens')->group(function () {
-        Route::get  ('/counts',        [AgentBienController::class, 'counts']);
-        Route::get  ('/',              [AgentBienController::class, 'index']);
-        Route::get  ('/{id}',          [AgentBienController::class, 'show']);
-        Route::post ('/{id}/claim',    [AgentBienController::class, 'claim']);
-        Route::post ('/{id}/release',  [AgentBienController::class, 'release']);
-        Route::patch('/{id}/statut',   [AgentBienController::class, 'updateStatut']);
+        Route::get  ('/counts',           [AgentBienController::class,   'counts']);
+        Route::get  ('/',                 [AgentBienController::class,   'index']);
+        Route::get  ('/{id}',             [AgentBienController::class,   'show']);
+        Route::post ('/{id}/claim',       [AgentBienController::class,   'claim']);
+        Route::post ('/{id}/release',     [AgentBienController::class,   'release']);
+        // Visites par bien
+        Route::get  ('/{id}/visites',     [AgentVisiteController::class, 'index']);
+        Route::post ('/{id}/visites',     [AgentVisiteController::class, 'store']);
+        Route::patch('/{id}/statut',      [AgentBienController::class,   'updateStatut']);
+    });
+
+    // ── Stats dashboard agent ──────────────────────────────────────────────────────────────
+    Route::middleware('role:agent')->get('/agent/stats', [AgentBienController::class, 'stats']);
+
+
+    // ── Rapports agent ───────────────────────────────────────────────────────────────────────
+    Route::middleware('role:agent')->prefix('agent/rapports')->group(function () {
+        Route::get ('/',           [AgentRapportController::class, 'index']);
+        Route::post('/',           [AgentRapportController::class, 'store']);
+        Route::get ('/{id}',       [AgentRapportController::class, 'show']);
+        Route::put ('/{id}',       [AgentRapportController::class, 'update']);
+        Route::post('/{id}/soumettre', [AgentRapportController::class, 'soumettre']);
+    });
+
+    // ── Rapport par bien (agent) ──────────────────────────────────────────────
+    Route::middleware('role:agent')->get(
+        '/agent/biens/{bienId}/rapport',
+        [AgentRapportController::class, 'byBien']
+    );
+
+    // ── Rapports admin ───────────────────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/rapports')->group(function () {
+        Route::get  ('/',                 [AdminRapportController::class, 'index']);
+        Route::get  ('/counts',           [AdminRapportController::class, 'counts']);
+        Route::get  ('/{id}',             [AdminRapportController::class, 'show']);
+        Route::post ('/{id}/decision',    [AdminRapportController::class, 'decision']);
+    });
+
+    // ── Calendrier : toutes les visites de l'agent ───────────────────────────────────────
+    Route::middleware('role:agent')->group(function () {
+        Route::get('/agent/visites', [AgentVisiteController::class, 'allVisites']);
+    });
+
+    // ── Téléchargement sécurisé de documents privés (agent ou admin) ────────────────
+    Route::middleware('role:agent,admin')->prefix('agent')->group(function () {
+        Route::get('/documents/{docId}', [AgentBienController::class, 'downloadDocument']);
+    });
+
+    // ── Stats admin dynamiques ─────────────────────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin')->group(function () {
+        Route::get('/stats', [AdminStatsController::class, 'index']);
+    });
+
+    Route::middleware('role:agent')->prefix('agent/visites')->group(function () {
+        Route::patch('/{id}', [AgentVisiteController::class, 'update']);
     });
 });

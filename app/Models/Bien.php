@@ -100,12 +100,26 @@ class Bien extends Model
         return $this->hasMany(DocumentBien::class);
     }
 
+    public function rapport(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Rapport::class);
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    /** Statuts possibles. */
+    public const STATUTS = ['brouillon', 'en_attente', 'en_cours', 'publie', 'rejete', 'archive'];
 
     /** Vrai si le bien peut encore être modifié par le propriétaire. */
     public function estModifiable(): bool
     {
         return in_array($this->statut, ['brouillon', 'rejete']);
+    }
+
+    /** Vrai si le bien est en cours de vérification par un agent. */
+    public function estEnCours(): bool
+    {
+        return $this->statut === 'en_cours';
     }
 
     /** Types de biens qui n'ont pas de pièces/salles de bain. */
