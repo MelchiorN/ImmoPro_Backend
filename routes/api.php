@@ -14,6 +14,7 @@ use App\Http\Controllers\Agent\AgentBienController;
 use App\Http\Controllers\Bien\BienController;
 use App\Http\Controllers\Bien\BienPublicController;
 use App\Http\Controllers\Client\ClientProfileController;
+use App\Http\Controllers\Client\ProprietaireBienController;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health check (public)
@@ -79,6 +80,14 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get   ('/{id}',   [BienController::class, 'show']);
             Route::put   ('/{bien}', [BienController::class, 'update']);
             Route::delete('/{id}',   [BienController::class, 'destroy']);
+        });
+
+        // ── Propriétaire : suivi de ses annonces (tous statuts) ───────────────
+        // Compatible avec le mobile GET /api/proprietaire/biens
+        Route::prefix('proprietaire/biens')->group(function () {
+            Route::get('/stats', [ProprietaireBienController::class, 'stats']);
+            Route::get('/',      [ProprietaireBienController::class, 'index']);
+            Route::get('/{id}',  [ProprietaireBienController::class, 'show']);
         });
     });
 

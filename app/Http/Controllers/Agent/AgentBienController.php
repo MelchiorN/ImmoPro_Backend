@@ -336,14 +336,14 @@ class AgentBienController extends Controller
 
     public function downloadDocument(Request $request, string $docId)
     {
-        $agentId = $request->user()->id;
+        $user = $request->user();
 
         // Charger le document avec le bien pour vérifier les droits
         $document = DocumentBien::with('bien')->findOrFail($docId);
 
-        // L'agent doit être assigné au bien (ou le bien doit être non assigné)
+        // L'agent doit être assigné au bien (ou le bien doit être non assigné) - Sauf s'il est admin
         $bien = $document->bien;
-        if ($bien->agent_id !== null && $bien->agent_id !== $agentId) {
+        if ($user->role !== 'admin' && $bien->agent_id !== null && $bien->agent_id !== $user->id) {
             abort(403, 'Accès refusé à ce document.');
         }
 

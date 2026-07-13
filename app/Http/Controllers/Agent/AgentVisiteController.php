@@ -19,14 +19,21 @@ class AgentVisiteController extends Controller
         $agentId = $request->user()->id;
 
         $request->validate([
-            'date_visite' => 'required|date|after:now',
+            // Tolérance de 5 min pour les décalages horloge mobile/serveur
+            'date_visite' => 'required|date|after_or_equal:' . now()->subMinutes(5)->toDateTimeString(),
             'notes'       => 'nullable|string|max:500',
+        ], [
+            'date_visite.required'        => 'La date et l\'heure de visite sont obligatoires.',
+            'date_visite.date'            => 'Le format de la date est invalide.',
+            'date_visite.after_or_equal'  => 'La date de visite doit être dans le futur.',
+            'notes.max'                   => 'Les notes ne doivent pas dépasser 500 caractères.',
         ]);
 
         // Vérifier que l'agent a ce bien en charge
+        // Le bien doit être en statut 'en_cours' (assigné à l'agent) — pas 'en_attente'
         $bien = Bien::where('id', $bienId)
                     ->where('agent_id', $agentId)
-                    ->where('statut', 'en_attente')
+                    ->whereIn('statut', ['en_cours', 'en_attente'])
                     ->with(['proprietaire'])
                     ->firstOrFail();
 
