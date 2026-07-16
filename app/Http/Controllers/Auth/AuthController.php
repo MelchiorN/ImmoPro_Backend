@@ -62,6 +62,13 @@ class AuthController extends Controller
             'connected_at' => Carbon::now(),
         ]);
 
+        // Log d'activité Spatie
+        activity()
+            ->causedBy($user)
+            ->performedOn($user)
+            ->withProperties(['ip' => $request->ip(), 'role' => $user->role])
+            ->log('Connexion réussie');
+
         // Nom du token selon le rôle
         $tokenName = $user->role === 'admin' ? 'admin-token' : 'agent-token';
 

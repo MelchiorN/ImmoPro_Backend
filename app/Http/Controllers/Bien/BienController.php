@@ -207,4 +207,64 @@ class BienController extends Controller
             'message' => 'Annonce supprimée.',
         ]);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/mes-biens/{id}/media
+    // Mettre à jour (remplacer) les photos d'un bien du propriétaire connecté
+    // ─────────────────────────────────────────────────────────────────────────
+    public function updateMedia(Request $request, string $id): JsonResponse
+    {
+        $bien = Bien::where('user_id', $request->user()->id)->findOrFail($id);
+
+        $request->validate([
+            'medias'   => 'required|array',
+            'medias.*' => 'required|file|image|max:10240', // max 10MB
+        ]);
+
+        DB::beginTransaction();
+        try {
+            // Supprimer les anciens médias physiques et de la BD
+            $anciensMedias = MediaBien::where('bien_id', $bien->id)->get();
+            foreach ($anciensMedias as $am) {
+                Storage::disk('public')->delete($am->chemin);
+                $am->delete();
+            }
+
+            // Enregistrer les nouveaux médias
+            if ($request->hasFile('medias')) {
+                foreach ($request->file('medias') as $index => $fichier) {
+                    $mime    = $fichier->getMimeType();
+                    $dossier = "biens/{$bien->id}/medias";
+                    $chemin  = $fichier->store($dossier, 'public');
+
+                    MediaBien::create([
+                        'bien_id'        => $bien->id,
+                        'type'           => 'photo',
+                        'chemin'         => $chemin,
+                        'url'            => Storage::disk('public')->url($chemin),
+                        'est_principale' => $index === 0,
+                        'ordre'          => $index,
+                        'taille'         => $fichier->getSize(),
+                        'mime_type'      => $mime,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Les images ont été mises à jour avec succès.',
+                'data'    => new BienResource($bien->fresh(['medias'])),
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la mise à jour des images.',
+                'error'   => app()->isLocal() ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
 }

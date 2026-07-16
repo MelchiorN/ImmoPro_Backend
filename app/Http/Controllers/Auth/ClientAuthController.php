@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Auth\RegisterController;
 use App\Models\HistoriqueConnexion;
 use App\Models\Otp;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -17,11 +19,6 @@ class ClientAuthController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/client/login
     // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Authentifie un client par email + mot de passe.
-     * Renvoie un token Sanctum si les identifiants sont valides.
-     */
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -29,12 +26,11 @@ class ClientAuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        /** @var User|null $user */
         $user = User::where('email', $validated['email'])
                     ->where('role', 'client')
                     ->first();
 
-        if (!$user || !Hash::check($validated['password'], $user->password)) {
+        if (! $user || ! Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => 'Email ou mot de passe incorrect.',
             ]);
@@ -42,7 +38,15 @@ class ClientAuthController extends Controller
 
         if ($user->status !== 'active') {
             return response()->json([
-                'message' => 'Votre compte est suspendu ou bloqué.',
+                'success' => false,
+                'message' => 'Votre compte est suspendu ou bloqué. Contactez l\'administrateur.',
+            ], 403);
+        }
+
+        if (is_null($user->email_verified_at)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Veuillez vérifier votre email avec le code OTP avant de vous connecter.',
             ], 403);
         }
 
@@ -57,12 +61,18 @@ class ClientAuthController extends Controller
             'connected_at' => Carbon::now(),
         ]);
 
-        // Révoquer les anciens tokens pour éviter l'accumulation
-        $user->tokens()->where('name', 'client-token')->delete();
+        // Log Spatie
+        activity()
+            ->causedBy($user)
+            ->performedOn($user)
+            ->withProperties(['ip' => $request->ip(), 'plateforme' => $request->header('X-Platform', 'mobile')])
+            ->log('Connexion client');
 
+        $user->tokens()->where('name', 'client-token')->delete();
         $token = $user->createToken('client-token')->plainTextToken;
 
         return response()->json([
+            'success' => true,
             'message' => 'Connexion réussie.',
             'token'   => $token,
             'user'    => $this->formatUser($user),
@@ -71,106 +81,154 @@ class ClientAuthController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/verify-otp
+    // Étape 2 de l'inscription : vérifier OTP → créer le compte → retourner token
+    // Body attendu : { email, otp, pending_token }
     // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Valide un OTP reçu par email.
-     * Si valide, vérifie l'email de l'utilisateur et retourne un token Sanctum.
-     */
     public function verifyOtp(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'email' => 'required|email|exists:users,email',
-            'otp'   => 'required|string|size:6',
+        $request->validate([
+            'email'         => 'required|email',
+            'otp'           => 'required|string|size:6',
+            'pending_token' => 'required|string',
         ]);
 
-        /** @var Otp|null $otpRecord */
-        $otpRecord = Otp::where('email', $validated['email'])
-                        ->where('code', $validated['otp'])
+        $email        = $request->input('email');
+        $code         = $request->input('otp');
+        $pendingToken = $request->input('pending_token');
+        $cacheKey     = 'pending_registration_' . $pendingToken;
+
+        // ── 1. Vérifier l'OTP ────────────────────────────────────────────────
+        $otpRecord = Otp::where('email', $email)
+                        ->where('code', $code)
                         ->where('utilise', false)
                         ->where('expired_at', '>', Carbon::now())
                         ->latest()
                         ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord) {
             return response()->json([
+                'success' => false,
                 'message' => 'Code OTP invalide ou expiré.',
             ], 422);
         }
 
-        // Marquer le code comme utilisé
-        $otpRecord->update(['utilise' => true]);
+        // ── 2. Récupérer les données d'inscription depuis le cache ────────────
+        $pendingData = Cache::get($cacheKey);
 
-        // Vérifier l'email de l'utilisateur
-        $user = User::where('email', $validated['email'])->firstOrFail();
-        if (is_null($user->email_verified_at)) {
-            $user->email_verified_at = Carbon::now();
-            $user->save();
+        if (! $pendingData || $pendingData['email'] !== $email) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Session d\'inscription expirée. Veuillez recommencer l\'inscription.',
+            ], 422);
         }
 
-        // Émettre un token Sanctum
+        // ── 3. Tout est valide → créer le compte ──────────────────────────────
+        $otpRecord->update(['utilise' => true]);
+        Cache::forget($cacheKey);
+
+        $user = User::create([
+            'first_name'        => $pendingData['first_name'],
+            'last_name'         => $pendingData['last_name'],
+            'email'             => $pendingData['email'],
+            'telephone'         => $pendingData['telephone'],
+            'country'           => $pendingData['country'],
+            'city'              => $pendingData['city'],
+            'password'          => $pendingData['password'], // déjà hashé dans RegisterController
+            'role'              => 'client',
+            'status'            => 'active',
+            'email_verified_at' => Carbon::now(),
+        ]);
+
+        // Log Spatie
+        activity()
+            ->performedOn($user)
+            ->withProperties(['ip' => $request->ip()])
+            ->log('Nouveau compte client créé via OTP');
+
+        // ── 4. Retourner le token ─────────────────────────────────────────────
         $token = $user->createToken('client-token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Email vérifié avec succès.',
+            'success' => true,
+            'message' => 'Compte créé avec succès. Bienvenue sur ImmoPro !',
             'token'   => $token,
             'user'    => $this->formatUser($user),
-        ], 200);
+        ], 201);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/resend-otp
+    // Renvoie un nouveau code OTP (utile si expiré)
+    // Body attendu : { email }
     // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Renvoie un nouveau code OTP à l'email de l'utilisateur.
-     */
     public function resendOtp(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'email' => 'required|email|exists:users,email',
+        $request->validate([
+            'email'         => 'required|email',
+            'pending_token' => 'nullable|string',
         ]);
 
-        /** @var RegisterController $register */
-        $register = app(RegisterController::class);
-        $register->generateAndSendOtp($validated['email']);
+        $email        = $request->input('email');
+        $pendingToken = $request->input('pending_token');
+
+        // Vérifier qu'il y a bien une inscription en attente dans le cache
+        // OU un OTP actif pour cet email (non expiré, non utilisé)
+        $hasCache = $pendingToken && Cache::has('pending_registration_' . $pendingToken);
+
+        $hasActiveOtp = Otp::where('email', $email)
+                           ->where('utilise', false)
+                           ->where('expired_at', '>', Carbon::now())
+                           ->exists();
+
+        // Chercher un cache actif via l'email (sans pending_token)
+        if (! $hasCache && ! $hasActiveOtp) {
+            // Dernière chance : chercher n'importe quel cache pending pour cet email
+            // En acceptant le renvoi si un OTP a été généré récemment (même expiré)
+            $hadRecentOtp = Otp::where('email', $email)
+                              ->where('created_at', '>=', Carbon::now()->subMinutes(60))
+                              ->exists();
+
+            if (! $hadRecentOtp) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Aucune inscription en attente trouvée pour cet email.',
+                ], 404);
+            }
+        }
+
+        app(RegisterController::class)->generateAndSendOtp($email);
 
         return response()->json([
+            'success' => true,
             'message' => 'Un nouveau code OTP a été envoyé à votre email.',
         ], 200);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Protégé par auth:sanctum
+    // GET /api/client/me
     // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * GET /api/client/me — Retourne le profil de l'utilisateur connecté.
-     */
     public function me(Request $request): JsonResponse
     {
-        return response()->json($this->formatUser($request->user()), 200);
+        return response()->json([
+            'success' => true,
+            'user'    => $this->formatUser($request->user()),
+        ], 200);
     }
 
-    /**
-     * POST /api/client/logout — Révoque le token courant.
-     */
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/client/logout
+    // ─────────────────────────────────────────────────────────────────────────
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
+            'success' => true,
             'message' => 'Déconnexion réussie.',
         ], 200);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Formatte l'objet utilisateur pour la réponse API.
-     */
+    // ─── Helper ───────────────────────────────────────────────────────────────
     private function formatUser(User $user): array
     {
         return [

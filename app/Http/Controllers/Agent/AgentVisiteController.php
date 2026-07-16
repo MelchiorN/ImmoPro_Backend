@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Agent;
 use App\Http\Controllers\Controller;
 use App\Mail\VisitePlanifieeNotification;
 use App\Models\Bien;
+use App\Models\Notification;
 use App\Models\Visite;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -67,6 +68,34 @@ class AgentVisiteController extends Controller
             } catch (\Throwable $e) {
                 // L'email ne doit pas bloquer la réponse
                 Log::warning('Email visite non envoyé : ' . $e->getMessage());
+            }
+        }
+
+        // ── Notification in-app pour le client propriétaire ───────────────────
+        if ($bien->proprietaire) {
+            $agent     = $request->user();
+            $nomAgent  = trim("{$agent->first_name} {$agent->last_name}");
+            $dateVisite = $visite->date_visite?->locale('fr')->isoFormat('dddd D MMMM YYYY [à] HH[h]mm');
+
+            try {
+                Notification::create([
+                    'user_id' => $bien->proprietaire->id,
+                    'type'    => 'visite_planifiee',
+                    'titre'   => 'Visite planifiée',
+                    'message' => "L'agent {$nomAgent} a planifié une visite de votre bien « {$bien->titre} » le {$dateVisite}.",
+                    'canal'   => 'push',
+                    'lu'      => false,
+                    'data'    => [
+                        'visite_id'  => $visite->id,
+                        'bien_id'    => $bien->id,
+                        'bien_titre' => $bien->titre,
+                        'agent_id'   => $agent->id,
+                        'agent_nom'  => $nomAgent,
+                        'date_visite'=> $visite->date_visite?->toIso8601String(),
+                    ],
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('Notification visite non créée : ' . $e->getMessage());
             }
         }
 

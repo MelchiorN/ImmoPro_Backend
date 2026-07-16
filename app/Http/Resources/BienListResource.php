@@ -34,6 +34,13 @@ class BienListResource extends JsonResource
             'photo_principale' => $photo
                 ? ($photo->url ?? $photo->url_publique)
                 : null,
+            'medias'           => $this->medias->map(fn ($m) => [
+                'id'             => $m->id,
+                'type'           => $m->type === 'photo' ? 'image' : $m->type,
+                'url'            => $m->url ?? $m->url_publique,
+                'est_principale' => (bool) $m->est_principale,
+                'ordre'          => $m->ordre,
+            ])->values()->toArray(),
             'publie_le'        => $this->publie_le?->toIso8601String(),
             'created_at'       => $this->created_at->toIso8601String(),
             'proprietaire'     => $this->proprietaire ? [

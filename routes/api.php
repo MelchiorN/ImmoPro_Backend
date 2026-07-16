@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\AdminActivityController;
 use App\Http\Controllers\Admin\AdminRapportController;
+use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Agent\AgentVisiteController;
 use App\Http\Controllers\Agent\AgentRapportController;
 use App\Http\Controllers\Auth\AuthController;
@@ -13,6 +15,7 @@ use App\Http\Controllers\Admin\BienAdminController;
 use App\Http\Controllers\Agent\AgentBienController;
 use App\Http\Controllers\Bien\BienController;
 use App\Http\Controllers\Bien\BienPublicController;
+use App\Http\Controllers\Client\ClientNotificationController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\ProprietaireBienController;
 
@@ -69,6 +72,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put ('/client/profile',       [ClientProfileController::class, 'update']);
         Route::put ('/client/password',      [ClientProfileController::class, 'changePassword']);
         Route::post('/client/profile/photo', [ClientProfileController::class, 'updatePhoto']);
+        // Notifications
+        Route::get ('/client/notifications',            [ClientNotificationController::class, 'index']);
+        Route::patch('/client/notifications/{id}/read', [ClientNotificationController::class, 'markAsRead']);
+        Route::post ('/client/notifications/read-all',  [ClientNotificationController::class, 'markAllAsRead']);
     });
 
 
@@ -79,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get   ('/',       [BienController::class, 'index']);
             Route::get   ('/{id}',   [BienController::class, 'show']);
             Route::put   ('/{bien}', [BienController::class, 'update']);
+            Route::post  ('/{id}/media', [BienController::class, 'updateMedia']);
             Route::delete('/{id}',   [BienController::class, 'destroy']);
         });
 
@@ -164,6 +172,21 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Stats admin dynamiques ─────────────────────────────────────────────────────────
     Route::middleware('role:admin')->prefix('admin')->group(function () {
         Route::get('/stats', [AdminStatsController::class, 'index']);
+    });
+
+    // ── Journal d'activités (admin) ────────────────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/activities')->group(function () {
+        Route::get('/',           [AdminActivityController::class, 'index']);
+        Route::get('/user/{id}',  [AdminActivityController::class, 'byUser']);
+    });
+
+    // ── Gestion des utilisateurs clients (admin) ───────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/users')->group(function () {
+        Route::get  ('/stats',          [AdminUserController::class, 'stats']);
+        Route::get  ('/',               [AdminUserController::class, 'index']);
+        Route::get  ('/{id}',           [AdminUserController::class, 'show']);
+        Route::patch('/{id}/status',    [AdminUserController::class, 'updateStatus']);
+        Route::get  ('/{id}/historique',[AdminUserController::class, 'historique']);
     });
 
     Route::middleware('role:agent')->prefix('agent/visites')->group(function () {

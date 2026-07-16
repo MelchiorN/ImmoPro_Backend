@@ -188,6 +188,19 @@ class AdminRapportController extends Controller
             }
         }
 
+        // ── Log d'activité ────────────────────────────────────────────────────
+        activity()
+            ->causedBy($admin)
+            ->performedOn($bien)
+            ->withProperties([
+                'rapport_id' => $rapport->id,
+                'decision'   => $decision,
+                'note'       => $note,
+            ])
+            ->log($decision === 'publier'
+                ? "Bien publié via rapport : {$bien->titre}"
+                : "Rapport rejeté — bien remis en cours : {$bien->titre}");
+
         return response()->json([
             'success' => true,
             'message' => $decision === 'publier'

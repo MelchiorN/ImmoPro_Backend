@@ -115,6 +115,13 @@ class BienAdminController extends Controller
 
         $bien->update($payload);
 
+        // Log d'activité
+        activity()
+            ->causedBy($request->user())
+            ->performedOn($bien)
+            ->withProperties(['ancien_statut' => $statutActuel, 'nouveau_statut' => $nouveauStatut])
+            ->log("Statut du bien changé : {$statutActuel} → {$nouveauStatut}");
+
         return response()->json([
             'success' => true,
             'message' => "Statut mis à jour : {$nouveauStatut}.",

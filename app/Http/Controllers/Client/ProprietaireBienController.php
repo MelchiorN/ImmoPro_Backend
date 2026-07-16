@@ -139,6 +139,13 @@ class ProprietaireBienController extends Controller
             'nb_pieces'        => $b->nb_pieces,
             'nb_salles_bain'   => $b->nb_salles_bain,
             'photo_principale' => $photo ? ($photo->url ?? null) : null,
+            'medias'           => $b->medias->map(fn ($m) => [
+                'id'             => $m->id,
+                'type'           => $m->type === 'photo' ? 'image' : $m->type,
+                'url'            => $m->url,
+                'est_principale' => (bool) $m->est_principale,
+                'ordre'          => $m->ordre,
+            ])->values()->toArray(),
             // Informations de suivi
             'raison_rejet'     => $b->statut === 'rejete' ? $b->note_admin : null,
             'publie_le'        => $b->publie_le?->toIso8601String(),
@@ -151,17 +158,7 @@ class ProprietaireBienController extends Controller
      */
     private function formatBienDetail(Bien $b): array
     {
-        $base = $this->formatBien($b);
-
-        $base['medias'] = $b->medias->map(fn ($m) => [
-            'id'             => $m->id,
-            'type'           => $m->type === 'photo' ? 'image' : $m->type,
-            'url'            => $m->url,
-            'est_principale' => (bool) $m->est_principale,
-            'ordre'          => $m->ordre,
-        ])->values()->toArray();
-
-        return $base;
+        return $this->formatBien($b);
     }
 
     /**

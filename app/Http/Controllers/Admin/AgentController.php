@@ -69,6 +69,11 @@ class AgentController extends Controller
             'status'     => 'active',
         ]);
 
+        activity()
+            ->causedBy($request->user())
+            ->performedOn($agent)
+            ->log("Nouvel agent créé : {$agent->first_name} {$agent->last_name}");
+
         return response()->json([
             'message' => 'Agent créé avec succès.',
             'agent'   => $agent,
@@ -110,6 +115,11 @@ class AgentController extends Controller
 
         $agent->update($validated);
 
+        activity()
+            ->causedBy($request->user())
+            ->performedOn($agent)
+            ->log("Agent mis à jour : {$agent->first_name} {$agent->last_name}");
+
         return response()->json([
             'message' => 'Agent mis à jour.',
             'agent'   => $agent->fresh(),
@@ -136,6 +146,12 @@ class AgentController extends Controller
             'blocked'   => 'bloqué',
         ];
 
+        activity()
+            ->causedBy($request->user())
+            ->performedOn($agent)
+            ->withProperties(['status' => $validated['status']])
+            ->log("Agent {$labels[$validated['status']]} : {$agent->first_name} {$agent->last_name}");
+
         return response()->json([
             'message' => "Agent {$labels[$validated['status']]} avec succès.",
             'agent'   => $agent->fresh(),
@@ -149,7 +165,13 @@ class AgentController extends Controller
     public function destroy(string $id): JsonResponse
     {
         $agent = User::where('role', 'agent')->findOrFail($id);
+        $nom   = "{$agent->first_name} {$agent->last_name}";
         $agent->delete();
+
+        activity()
+            ->causedBy(request()->user())
+            ->withProperties(['agent_id' => $id])
+            ->log("Agent supprimé : {$nom}");
 
         return response()->json([
             'message' => 'Agent supprimé.',
