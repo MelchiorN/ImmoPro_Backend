@@ -24,6 +24,7 @@ class BienResource extends JsonResource
             'titre'            => $this->titre,
             'description'      => $this->description,
             'prix'             => (float) $this->prix,
+            'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
             'surface'          => $this->surface ? (float) $this->surface : null,
             'nb_pieces'        => $this->nb_pieces,
             'nb_salles_bain'   => $this->nb_salles_bain,

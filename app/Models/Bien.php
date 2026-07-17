@@ -22,6 +22,7 @@ class Bien extends Model
         'titre',
         'description',
         'prix',
+        'prix_public',
         'surface',
         'superficie',
         'nb_pieces',
@@ -34,17 +35,20 @@ class Bien extends Model
         'note_admin',
         'agent_id',
         'publie_le',
+        'locked_until',
     ];
 
     protected function casts(): array
     {
         return [
             'prix'              => 'decimal:2',
+            'prix_public'       => 'decimal:2',
             'surface'           => 'decimal:2',
             'superficie'        => 'decimal:2',
             'latitude'          => 'decimal:7',
             'longitude'         => 'decimal:7',
             'publie_le'         => 'datetime',
+            'locked_until'      => 'datetime',
             'caracteristiques'  => 'array',
         ];
     }
@@ -116,6 +120,29 @@ class Bien extends Model
     public function getCategorie(): ?Categorie
     {
         return Categorie::findBySlug($this->type_bien);
+    }
+
+    public function locations(): HasMany
+    {
+        return $this->hasMany(Location::class);
+    }
+
+    /** Vérifie si le bien est temporairement verrouillé. */
+    public function estVerrouille(): bool
+    {
+        return $this->locked_until && $this->locked_until->isFuture();
+    }
+
+    /** Verrouille le bien pour une durée donnée (en minutes). */
+    public function verrouiller(int $minutes = 15): void
+    {
+        $this->update(['locked_until' => now()->addMinutes($minutes)]);
+    }
+
+    /** Déverrouille le bien. */
+    public function deverrouiller(): void
+    {
+        $this->update(['locked_until' => null]);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

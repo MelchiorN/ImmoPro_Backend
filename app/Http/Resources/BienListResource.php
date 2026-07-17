@@ -25,6 +25,7 @@ class BienListResource extends JsonResource
             'type_transaction' => $this->type_transaction,
             'titre'            => $this->titre,
             'prix'             => (float) $this->prix,
+            'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
             'surface'          => $this->surface ? (float) $this->surface : null,
             'nb_pieces'        => $this->nb_pieces,
             'caracteristiques' => $this->caracteristiques ?? [],

@@ -19,13 +19,25 @@ class Categorie extends Model
         'description',
         'actif',
         'ordre_affichage',
+        'pourcentage_commission',
     ];
 
     protected function casts(): array
     {
         return [
-            'actif' => 'boolean',
+            'actif'                  => 'boolean',
+            'pourcentage_commission' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Calcule le prix public d'un bien en appliquant la commission.
+     * prix_public = prix + (prix × pourcentage_commission / 100)
+     */
+    public function calculerPrixPublic(float $prixProprietaire): float
+    {
+        $commission = (float) $this->pourcentage_commission;
+        return round($prixProprietaire + ($prixProprietaire * $commission / 100), 2);
     }
 
     // ─── Relations ────────────────────────────────────────────────────────────

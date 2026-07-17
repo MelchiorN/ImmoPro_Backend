@@ -22,6 +22,7 @@ use App\Http\Controllers\Bien\BienController;
 use App\Http\Controllers\Bien\BienPublicController;
 use App\Http\Controllers\Client\ClientNotificationController;
 use App\Http\Controllers\Client\ClientProfileController;
+use App\Http\Controllers\Client\LocationController;
 use App\Http\Controllers\Client\ProprietaireBienController;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +117,16 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{id}',  [ProprietaireBienController::class, 'show']);
             Route::post('/{id}/publier', [ProprietaireBienController::class, 'publier']);
         });
+
+        // ── Module Location (tunnel de location) ──────────────────────────────
+        Route::prefix('mobile/locations')->group(function () {
+            Route::post('/',                               [LocationController::class, 'initier']);
+            Route::post('/{id}/accepter-contrat',          [LocationController::class, 'accepterContrat']);
+            Route::post('/{id}/payer',                     [LocationController::class, 'payer']);
+            Route::post('/{id}/confirmer-paiement',        [LocationController::class, 'confirmerPaiement']);
+            Route::get ('/{id}/contrat/telecharger',       [LocationController::class, 'telechargerContrat']);
+            Route::get ('/{id}/recu/telecharger',          [LocationController::class, 'telechargerRecu']);
+        });
     });
 
     
@@ -148,6 +159,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put   ('/{id}/attributs/{aid}',        [CategorieController::class, 'updateAttribut']);
         Route::patch ('/{id}/attributs/{aid}/toggle', [CategorieController::class, 'toggleAttribut']);
         Route::delete('/{id}/attributs/{aid}',        [CategorieController::class, 'deleteAttribut']);
+    });
+
+    // ── Commissions & Reversements (admin) ────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin')->group(function () {
+        Route::get  ('/commissions/stats',             [\App\Http\Controllers\Admin\CommissionController::class, 'stats']);
+        Route::get  ('/commissions',                   [\App\Http\Controllers\Admin\CommissionController::class, 'index']);
+        Route::get  ('/reversements',                  [\App\Http\Controllers\Admin\CommissionController::class, 'reversements']);
+        Route::patch('/reversements/{id}/traiter',     [\App\Http\Controllers\Admin\CommissionController::class, 'traiterReversement']);
     });
 
    

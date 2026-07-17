@@ -72,6 +72,16 @@ class BienController extends Controller
                 'statut'           => 'en_attente',
             ]);
 
+            // 1bis. Calculer le prix public (prix + commission catégorie)
+            $categorie = $bien->getCategorie();
+            if ($categorie) {
+                $bien->update([
+                    'prix_public' => $categorie->calculerPrixPublic((float) $bien->prix),
+                ]);
+            } else {
+                $bien->update(['prix_public' => $bien->prix]);
+            }
+
             // 2. Sauvegarder les médias
             if ($request->hasFile('medias')) {
                 foreach ($request->file('medias') as $index => $fichier) {

@@ -123,13 +123,16 @@ class CategorieController extends Controller
         $categorie = Categorie::findOrFail($id);
 
         $request->validate([
-            'nom'             => 'sometimes|string|max:100',
-            'description'     => 'nullable|string|max:500',
-            'actif'           => 'sometimes|boolean',
-            'ordre_affichage' => 'sometimes|integer|min:0',
+            'nom'                    => 'sometimes|string|max:100',
+            'description'            => 'nullable|string|max:500',
+            'actif'                  => 'sometimes|boolean',
+            'ordre_affichage'        => 'sometimes|integer|min:0',
+            'pourcentage_commission' => 'sometimes|numeric|min:0|max:100',
         ]);
 
-        $categorie->update($request->only(['nom', 'description', 'actif', 'ordre_affichage']));
+        $categorie->update($request->only([
+            'nom', 'description', 'actif', 'ordre_affichage', 'pourcentage_commission',
+        ]));
 
         return response()->json([
             'success' => true,
@@ -298,6 +301,7 @@ class CategorieController extends Controller
             'description'            => $c->description,
             'actif'                  => $c->actif,
             'ordre_affichage'        => $c->ordre_affichage,
+            'pourcentage_commission' => (float) $c->pourcentage_commission,
             'nb_attributs'           => $c->attributs_count ?? 0,
             'nb_attributs_actifs'    => $c->attributs_actifs_count ?? 0,
         ];
