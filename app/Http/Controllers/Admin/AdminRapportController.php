@@ -8,12 +8,16 @@ use App\Models\Bien;
 use App\Models\Notification;
 use App\Models\Rapport;
 use App\Models\User;
+use App\Services\EmailTemplateService;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 
 class AdminRapportController extends Controller
 {
+    public function __construct(private readonly NotificationService $notifService) {}
+
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/admin/rapports
     // Liste tous les rapports soumis (+ filtres statut, search)
@@ -123,21 +127,22 @@ class AdminRapportController extends Controller
         $nomAdmin = trim("{$admin->first_name} {$admin->last_name}");
 
         if ($decision === 'publier') {
-            // ── Publier ───────────────────────────────────────────────────────
+            // ── Approuver ─────────────────────────────────────────────────────
+            // Le bien passe à "valide" (approuvé par l'admin).
+            // Le propriétaire devra ensuite décider de le publier lui-même.
             $rapport->update([
                 'statut'      => Rapport::STATUT_VALIDE,
                 'note_finale' => null,
             ]);
 
             $bien->update([
-                'statut'     => 'publie',
-                'publie_le'  => now(),
+                'statut'     => 'valide',
                 'note_admin' => null,
             ]);
 
-            $messageAgent = "Félicitations ! Votre rapport pour « {$bien->titre} » a été approuvé. Le bien est maintenant publié.";
+            $messageAgent = "Félicitations ! Votre rapport pour « {$bien->titre} » a été approuvé. Le propriétaire peut désormais publier son bien sur la plateforme.";
             $typeNotif    = 'rapport_approuve';
-            $titreNotif   = 'Rapport approuvé — bien publié';
+            $titreNotif   = 'Rapport approuvé ✅';
 
         } else {
             // ── Rejeter ───────────────────────────────────────────────────────
@@ -157,35 +162,60 @@ class AdminRapportController extends Controller
             $titreNotif   = 'Rapport rejeté — corrections requises';
         }
 
-        // ── Notification in-app à l'agent ────────────────────────────────────
-        Notification::create([
-            'user_id' => $rapport->agent_id,
-            'type'    => $typeNotif,
-            'titre'   => $titreNotif,
-            'message' => $messageAgent,
-            'canal'   => 'push',
-            'lu'      => false,
-            'data'    => [
-                'rapport_id' => $rapport->id,
-                'bien_id'    => $bien->id,
-                'bien_titre' => $bien->titre,
-                'decision'   => $decision,
-                'note'       => $note,
-            ],
-        ]);
-
-        // ── Email à l'agent ───────────────────────────────────────────────────
+        // ── Notification in-app + push + email à l'agent ─────────────────────
         if ($rapport->agent) {
-            try {
-                Mail::raw(
-                    "Bonjour {$rapport->agent->first_name},\n\n{$messageAgent}\n\n— ImmoPro Administration",
-                    fn ($msg) => $msg
-                        ->to($rapport->agent->email)
-                        ->subject("ImmoPro — {$titreNotif} : {$bien->titre}")
-                );
-            } catch (\Exception $e) {
-                \Log::warning("Email agent notification failed: " . $e->getMessage());
-            }
+            $emailHtml = EmailTemplateService::generic(
+                titre:   $titreNotif,
+                intro:   $messageAgent,
+                rows:    [
+                    ['icon' => '🏠', 'label' => 'Bien',     'value' => $bien->titre],
+                    ['icon' => '📋', 'label' => 'Décision', 'value' => $decision === 'publier' ? 'Approuvé ✅' : 'Rejeté ❌'],
+                ],
+                noteBox: ($decision === 'rejeter' && $note) ? $note : null,
+            );
+
+            $this->notifService->notify(
+                user:         $rapport->agent,
+                type:         $typeNotif,
+                titre:        $titreNotif,
+                message:      $messageAgent,
+                data:         [
+                    'rapport_id' => $rapport->id,
+                    'bien_id'    => $bien->id,
+                    'bien_titre' => $bien->titre,
+                    'decision'   => $decision,
+                    'note'       => $note,
+                ],
+                emailSubject: "ImmoPro — {$titreNotif} : {$bien->titre}",
+                emailBody:    $emailHtml,
+            );
+        }
+
+        // ── Notifier le propriétaire ──────────────────────────────────────────
+        if ($bien->proprietaire) {
+            $msgProprio = $decision === 'publier'
+                ? "Bonne nouvelle ! Votre bien « {$bien->titre} » a été vérifié et approuvé par notre équipe. Connectez-vous pour le publier sur la plateforme quand vous le souhaitez. 🎉"
+                : "La publication de votre bien « {$bien->titre} » est en attente de corrections.";
+
+            $emailProprioHtml = EmailTemplateService::generic(
+                titre: $decision === 'publier' ? '🎉 Votre bien est approuvé !' : 'Bien en attente de corrections',
+                intro: $msgProprio,
+                rows:  [
+                    ['icon' => '🏠', 'label' => 'Bien', 'value' => $bien->titre],
+                    ['icon' => '✅', 'label' => 'Statut', 'value' => $decision === 'publier' ? 'Approuvé — prêt à publier' : 'Corrections requises'],
+                ],
+                noteBox: ($decision === 'rejeter' && $note) ? $note : null,
+            );
+
+            $this->notifService->notify(
+                user:         $bien->proprietaire,
+                type:         $decision === 'publier' ? 'bien_valide' : 'bien_corrections_requises',
+                titre:        $decision === 'publier' ? 'Bien approuvé — publiez-le ! 🎉' : 'Corrections requises',
+                message:      $msgProprio,
+                data:         ['bien_id' => $bien->id, 'bien_titre' => $bien->titre, 'decision' => $decision],
+                emailSubject: "ImmoPro — " . ($decision === 'publier' ? "Votre bien est approuvé, publiez-le !" : "Corrections requises : {$bien->titre}"),
+                emailBody:    $emailProprioHtml,
+            );
         }
 
         // ── Log d'activité ────────────────────────────────────────────────────

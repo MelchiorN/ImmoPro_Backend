@@ -131,9 +131,9 @@ class AgentRapportController extends Controller
     {
         $agentId = $request->user()->id;
 
-        // L'agent peut modifier son rapport tant qu'il n'est pas validé
+        // L'agent peut modifier son rapport uniquement s'il est en brouillon ou rejeté
         $rapport = Rapport::where('agent_id', $agentId)
-            ->where('statut', '!=', Rapport::STATUT_VALIDE)
+            ->whereIn('statut', [Rapport::STATUT_BROUILLON, Rapport::STATUT_REJETE])
             ->findOrFail($id);
 
         $data = $request->validate([

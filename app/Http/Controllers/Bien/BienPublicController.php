@@ -19,7 +19,7 @@ class BienPublicController extends Controller
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'type_bien'        => 'nullable|in:appartement,maison,villa,terrain,bureau_commerce',
+            'type_bien'        => 'nullable|in:appartement,maison,villa,terrain,bureau_commerce,chambre_studio',
             'type_transaction' => 'nullable|in:vente,location,colocation',
             'prix_min'         => 'nullable|numeric|min:0',
             'prix_max'         => 'nullable|numeric|min:0',

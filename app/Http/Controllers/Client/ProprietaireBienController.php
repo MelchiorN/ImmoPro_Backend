@@ -98,6 +98,29 @@ class ProprietaireBienController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/proprietaire/biens/{id}/publier
+    // Le propriétaire publie son bien après approbation admin (statut "valide")
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function publier(Request $request, string $id): JsonResponse
+    {
+        $bien = Bien::where('user_id', $request->user()->id)
+            ->where('statut', 'valide')
+            ->findOrFail($id);
+
+        $bien->update([
+            'statut'    => 'publie',
+            'publie_le' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Votre bien est maintenant publié sur la plateforme ! 🎉',
+            'data'    => $this->formatBienDetail($bien->fresh(['medias'])),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // GET /api/proprietaire/biens/{id}
     // Détail complet d'un bien (avec note_admin / raison_rejet visible)
     // ─────────────────────────────────────────────────────────────────────────
@@ -170,6 +193,7 @@ class ProprietaireBienController extends Controller
         return match ($statut) {
             'en_cours'   => 'en_verification',
             'en_attente' => 'en_attente',
+            'valide'     => 'valide',   // Approuvé par admin, en attente de publication
             default      => $statut,
         };
     }

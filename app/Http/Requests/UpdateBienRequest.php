@@ -29,11 +29,12 @@ class UpdateBienRequest extends FormRequest
             'prix'             => 'sometimes|numeric|min:0',
             'description'      => 'nullable|string|max:2000',
             'surface'          => 'nullable|numeric|min:1',
+            'superficie'       => 'nullable|numeric|min:1',
             'nb_pieces'        => ($sansChambre ? 'nullable' : 'sometimes') . '|integer|min:1|max:100',
             'nb_salles_bain'   => ($sansChambre ? 'nullable' : 'sometimes') . '|integer|min:0|max:50',
             'adresse'          => 'sometimes|string|max:500',
-            'latitude'         => 'sometimes|numeric|between:-90,90',
-            'longitude'        => 'sometimes|numeric|between:-180,180',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
         ];
     }
 }

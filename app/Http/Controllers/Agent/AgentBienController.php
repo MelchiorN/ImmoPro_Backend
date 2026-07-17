@@ -58,8 +58,8 @@ class AgentBienController extends Controller
                 break;
 
             case 'termine':
-                // Biens publiés ou rejetés par cet agent
-                $query->whereIn('statut', ['publie', 'rejete', 'archive'])
+                // Biens approuvés, publiés ou rejetés par cet agent
+                $query->whereIn('statut', ['valide', 'publie', 'rejete', 'archive'])
                       ->where('agent_id', $agentId);
                 break;
 
@@ -95,7 +95,7 @@ class AgentBienController extends Controller
         // ── Compteurs ─────────────────────────────────────────────────────────
         $nonAssigne  = Bien::where('statut', 'en_attente')->whereNull('agent_id')->count();
         $enCours     = Bien::where('statut', 'en_cours')->where('agent_id', $agentId)->count();
-        $publies     = Bien::where('statut', 'publie')->where('agent_id', $agentId)->count();
+        $publies     = Bien::whereIn('statut', ['valide', 'publie'])->where('agent_id', $agentId)->count();
         $rejetes     = Bien::where('statut', 'rejete')->where('agent_id', $agentId)->count();
         $totalTraite = $publies + $rejetes;
         $tauxValid   = $totalTraite > 0 ? round($publies / $totalTraite * 100) : null;
@@ -259,47 +259,17 @@ class AgentBienController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PATCH /api/agent/biens/{id}/statut
-    // L'agent publie ou rejette un bien qu'il a pris en charge
+    // PATCH /api/agent/biens/{id}/statut  — DÉSACTIVÉ
+    // L'agent ne peut plus publier/rejeter un bien directement.
+    // La publication passe désormais par le circuit : rapport → admin → propriétaire.
     // ─────────────────────────────────────────────────────────────────────────
 
     public function updateStatut(Request $request, string $id): JsonResponse
     {
-        $request->validate([
-            'statut'     => 'required|in:publie,rejete',
-            'note_admin' => 'nullable|string|max:1000',
-        ]);
-
-        $agentId = $request->user()->id;
-
-        // L'agent ne peut agir que sur les biens qu'il a pris en charge (statut en_cours)
-        $bien = Bien::where('id', $id)
-                    ->where('agent_id', $agentId)
-                    ->where('statut', 'en_cours')
-                    ->firstOrFail();
-
-        $nouveauStatut = $request->input('statut');
-        $payload = ['statut' => $nouveauStatut];
-
-        if ($nouveauStatut === 'publie') {
-            $payload['publie_le']  = now();
-            $payload['note_admin'] = null;
-        }
-
-        if ($nouveauStatut === 'rejete') {
-            $payload['note_admin'] = $request->input('note_admin', 'Votre annonce a été rejetée après vérification.');
-            $payload['publie_le']  = null;
-        }
-
-        $bien->update($payload);
-
         return response()->json([
-            'success' => true,
-            'message' => $nouveauStatut === 'publie'
-                ? 'Bien publié avec succès.'
-                : 'Bien rejeté. Le propriétaire sera notifié.',
-            'data'    => new BienResource($bien->fresh(['medias', 'documents', 'proprietaire'])),
-        ]);
+            'success' => false,
+            'message' => 'Les agents ne peuvent plus modifier le statut d\'un bien directement. Soumettez un rapport à l\'administration pour décision.',
+        ], 403);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -319,7 +289,7 @@ class AgentBienController extends Controller
                        ->where('agent_id', $agentId)
                        ->count();
 
-        $termine = Bien::whereIn('statut', ['publie', 'rejete', 'archive'])
+        $termine = Bien::whereIn('statut', ['valide', 'publie', 'rejete', 'archive'])
                        ->where('agent_id', $agentId)
                        ->count();
 

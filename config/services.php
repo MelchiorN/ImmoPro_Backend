@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    // ── Firebase Cloud Messaging (push notifications mobiles) ────────────────
+    // Le Service Account est lu depuis storage/app/firebase/immopro.json
+    // Aucune clé à configurer ici.
+
 ];

@@ -62,8 +62,10 @@ class BienController extends Controller
                 'description'      => $request->input('description'),
                 'prix'             => $request->input('prix'),
                 'surface'          => $request->input('surface'),
+                'superficie'       => $request->input('superficie'),
                 'nb_pieces'        => $request->input('nb_pieces'),
                 'nb_salles_bain'   => $request->input('nb_salles_bain'),
+                'caracteristiques' => $request->input('caracteristiques'),
                 'adresse'          => $request->input('adresse'),
                 'latitude'         => $request->input('latitude'),
                 'longitude'        => $request->input('longitude'),
@@ -93,17 +95,18 @@ class BienController extends Controller
             }
 
             // 3. Sauvegarder les documents
+            // Accepte : piece_identite (obligatoire), justificatif_propriete et plan_cadastral (optionnels)
             $typesDocuments = [
-                'titre_foncier'  => 'titre_foncier',
-                'piece_identite' => 'piece_identite',
-                'plan_cadastral' => 'plan_cadastral',
+                'piece_identite'         => 'piece_identite',
+                'justificatif_propriete' => 'autre',
+                'plan_cadastral'         => 'plan_cadastral',
             ];
 
             foreach ($typesDocuments as $inputKey => $typeDoc) {
                 if ($request->hasFile("documents.{$inputKey}")) {
                     $fichier = $request->file("documents.{$inputKey}");
                     $dossier = "biens/{$bien->id}/documents";
-                    $chemin  = $fichier->store($dossier, 'local'); // privé
+                    $chemin  = $fichier->store($dossier, 'local');
 
                     DocumentBien::create([
                         'bien_id'      => $bien->id,
@@ -118,6 +121,24 @@ class BienController extends Controller
             }
 
             DB::commit();
+
+            // 4. Envoyer une notification aux admins et agents
+            try {
+                $notificationService = app(\App\Services\NotificationService::class);
+                $staffUsers = \App\Models\User::whereIn('role', ['admin', 'agent'])->get();
+
+                foreach ($staffUsers as $staff) {
+                    $notificationService->notify(
+                        $staff,
+                        'nouveau_bien',
+                        'Nouveau bien à vérifier',
+                        "Le propriétaire a soumis un nouveau bien ({$bien->titre}) en attente de vérification.",
+                        ['bien_id' => (string) $bien->id]
+                    );
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Erreur notification nouveau bien: " . $e->getMessage());
+            }
 
             // Charger les relations pour la réponse
             $bien->load(['medias', 'documents']);

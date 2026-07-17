@@ -27,6 +27,7 @@ class BienResource extends JsonResource
             'surface'          => $this->surface ? (float) $this->surface : null,
             'nb_pieces'        => $this->nb_pieces,
             'nb_salles_bain'   => $this->nb_salles_bain,
+            'caracteristiques' => $this->caracteristiques ?? [],
 
             // Localisation
             'adresse'          => $this->adresse,

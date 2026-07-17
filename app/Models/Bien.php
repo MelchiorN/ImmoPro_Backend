@@ -23,8 +23,10 @@ class Bien extends Model
         'description',
         'prix',
         'surface',
+        'superficie',
         'nb_pieces',
         'nb_salles_bain',
+        'caracteristiques',
         'adresse',
         'latitude',
         'longitude',
@@ -37,11 +39,13 @@ class Bien extends Model
     protected function casts(): array
     {
         return [
-            'prix'         => 'decimal:2',
-            'surface'      => 'decimal:2',
-            'latitude'     => 'decimal:7',
-            'longitude'    => 'decimal:7',
-            'publie_le'    => 'datetime',
+            'prix'              => 'decimal:2',
+            'surface'           => 'decimal:2',
+            'superficie'        => 'decimal:2',
+            'latitude'          => 'decimal:7',
+            'longitude'         => 'decimal:7',
+            'publie_le'         => 'datetime',
+            'caracteristiques'  => 'array',
         ];
     }
 
@@ -105,10 +109,19 @@ class Bien extends Model
         return $this->hasOne(Rapport::class);
     }
 
+    /**
+     * Catégorie liée via le slug = type_bien.
+     * Pas une FK classique — on résout dynamiquement.
+     */
+    public function getCategorie(): ?Categorie
+    {
+        return Categorie::findBySlug($this->type_bien);
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /** Statuts possibles. */
-    public const STATUTS = ['brouillon', 'en_attente', 'en_cours', 'publie', 'rejete', 'archive'];
+    public const STATUTS = ['brouillon', 'en_attente', 'en_cours', 'valide', 'publie', 'rejete', 'archive'];
 
     /** Vrai si le bien peut encore être modifié par le propriétaire. */
     public function estModifiable(): bool
@@ -125,6 +138,6 @@ class Bien extends Model
     /** Types de biens qui n'ont pas de pièces/salles de bain. */
     public static function typeSansChambres(): array
     {
-        return ['terrain'];
+        return ['terrain', 'bureau_commerce', 'chambre_studio'];
     }
 }

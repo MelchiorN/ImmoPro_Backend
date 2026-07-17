@@ -27,6 +27,7 @@ class BienListResource extends JsonResource
             'prix'             => (float) $this->prix,
             'surface'          => $this->surface ? (float) $this->surface : null,
             'nb_pieces'        => $this->nb_pieces,
+            'caracteristiques' => $this->caracteristiques ?? [],
             'adresse'          => $this->adresse,
             'latitude'         => (float) $this->latitude,
             'longitude'        => (float) $this->longitude,

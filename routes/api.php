@@ -1,13 +1,18 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\AdminNotificationController;
+use App\Http\Controllers\Admin\CategorieController;
+use App\Http\Controllers\Annonce\CategoriePublicController;
 use App\Http\Controllers\Admin\AdminActivityController;
 use App\Http\Controllers\Admin\AdminRapportController;
 use App\Http\Controllers\Admin\AdminUserController;
+use App\Http\Controllers\Agent\AgentNotificationController;
 use App\Http\Controllers\Agent\AgentVisiteController;
 use App\Http\Controllers\Agent\AgentRapportController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\ClientAuthController;
+use App\Http\Controllers\Auth\DeviceTokenController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Admin\AdminStatsController;
 use App\Http\Controllers\Admin\AgentController;
@@ -44,6 +49,15 @@ Route::post('/resend-otp',   [ClientAuthController::class, 'resendOtp']);
 Route::post('/login', [AuthController::class, 'login']);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Catégories — lecture publique (schéma de formulaire)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Route::prefix('categories')->group(function () {
+    Route::get('/',            [CategoriePublicController::class, 'index']);
+    Route::get('/{slug}/schema', [CategoriePublicController::class, 'schema']);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Biens — lecture publique (biens publiés uniquement, sans authentification)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -63,6 +77,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get ('/me',     [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
+
+    // ── Device token (push notifications) — tous rôles ────────────────────────
+    Route::post  ('/device-token', [DeviceTokenController::class, 'update']);
+    Route::delete('/device-token', [DeviceTokenController::class, 'destroy']);
 
     // ── Profil & déconnexion — Client ─────────────────────────────────────────
     Route::middleware('role:client')->group(function () {
@@ -96,6 +114,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/stats', [ProprietaireBienController::class, 'stats']);
             Route::get('/',      [ProprietaireBienController::class, 'index']);
             Route::get('/{id}',  [ProprietaireBienController::class, 'show']);
+            Route::post('/{id}/publier', [ProprietaireBienController::class, 'publier']);
         });
     });
 
@@ -117,6 +136,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get  ('/{id}',          [BienAdminController::class, 'show']);
         Route::patch('/{id}/statut',   [BienAdminController::class, 'updateStatut']);
         Route::patch('/{id}/assigner', [BienAdminController::class, 'assigner']);
+    });
+
+    // ── Gestion des catégories (admin) ────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/categories')->group(function () {
+        Route::get   ('/',                            [CategorieController::class, 'index']);
+        Route::post  ('/',                            [CategorieController::class, 'store']);
+        Route::get   ('/{id}',                        [CategorieController::class, 'show']);
+        Route::put   ('/{id}',                        [CategorieController::class, 'update']);
+        Route::post  ('/{id}/attributs',              [CategorieController::class, 'addAttribut']);
+        Route::put   ('/{id}/attributs/{aid}',        [CategorieController::class, 'updateAttribut']);
+        Route::patch ('/{id}/attributs/{aid}/toggle', [CategorieController::class, 'toggleAttribut']);
+        Route::delete('/{id}/attributs/{aid}',        [CategorieController::class, 'deleteAttribut']);
     });
 
    
@@ -191,5 +222,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('role:agent')->prefix('agent/visites')->group(function () {
         Route::patch('/{id}', [AgentVisiteController::class, 'update']);
+    });
+
+    // ── Notifications agent ────────────────────────────────────────────────────
+    Route::middleware('role:agent')->prefix('agent/notifications')->group(function () {
+        Route::get  ('/',            [AgentNotificationController::class, 'index']);
+        Route::patch('/{id}/read',   [AgentNotificationController::class, 'markAsRead']);
+        Route::post ('/read-all',    [AgentNotificationController::class, 'markAllAsRead']);
+    });
+
+    // ── Notifications admin ────────────────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/notifications')->group(function () {
+        Route::get  ('/',            [AdminNotificationController::class, 'index']);
+        Route::patch('/{id}/read',   [AdminNotificationController::class, 'markAsRead']);
+        Route::post ('/read-all',    [AdminNotificationController::class, 'markAllAsRead']);
     });
 });
