@@ -23,9 +23,10 @@ class DatabaseSeeder extends Seeder
         // ]);
 
         $this->call([
-            UserSeeder::class,
-            CategorieSeeder::class,
-            BienSeeder::class,
+            // UserSeeder::class,
+            // CategorieSeeder::class,
+            // BienSeeder::class,
+            ContratTemplateSeeder::class,
         ]);
     }
 }

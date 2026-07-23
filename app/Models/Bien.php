@@ -115,11 +115,15 @@ class Bien extends Model
 
     /**
      * Catégorie liée via le slug = type_bien.
-     * Pas une FK classique — on résout dynamiquement.
      */
+    public function categorie(): BelongsTo
+    {
+        return $this->belongsTo(Categorie::class, 'type_bien', 'slug');
+    }
+
     public function getCategorie(): ?Categorie
     {
-        return Categorie::findBySlug($this->type_bien);
+        return $this->categorie ?? Categorie::findBySlug($this->type_bien);
     }
 
     public function locations(): HasMany
@@ -153,7 +157,7 @@ class Bien extends Model
     /** Vrai si le bien peut encore être modifié par le propriétaire. */
     public function estModifiable(): bool
     {
-        return in_array($this->statut, ['brouillon', 'rejete']);
+        return $this->statut !== 'archive';
     }
 
     /** Vrai si le bien est en cours de vérification par un agent. */
@@ -166,5 +170,11 @@ class Bien extends Model
     public static function typeSansChambres(): array
     {
         return ['terrain', 'bureau_commerce', 'chambre_studio'];
+    }
+
+    public function favorisPar(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'favoris', 'bien_id', 'user_id')
+                    ->withTimestamps();
     }
 }

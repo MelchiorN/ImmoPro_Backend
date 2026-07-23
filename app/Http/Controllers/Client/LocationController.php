@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use App\Services\Payment\SemoaService;
 
 class LocationController extends Controller
 {
@@ -98,8 +99,10 @@ class LocationController extends Controller
             $contrat = Contrat::create([
                 'location_id'      => $location->id,
                 'contenu_html'     => $contenuHtml,
-                'fichier_pdf'      => null, // Sera généré si dompdf est installé
+                'fichier_pdf'      => null,
+                'url_pdf'          => null,
                 'date_generation'  => now(),
+                'date_creation'    => now(),
                 'statut_signature' => 'en_attente',
             ]);
 
@@ -107,7 +110,10 @@ class LocationController extends Controller
             try {
                 $cheminPdf = $this->genererPdfContrat($contrat, $location);
                 if ($cheminPdf) {
-                    $contrat->update(['fichier_pdf' => $cheminPdf]);
+                    $contrat->update([
+                        'fichier_pdf' => $cheminPdf,
+                        'url_pdf'     => $cheminPdf,
+                    ]);
                 }
             } catch (\Throwable $e) {
                 Log::warning("Génération PDF contrat échouée: " . $e->getMessage());
@@ -125,9 +131,13 @@ class LocationController extends Controller
                     'date_debut'    => $dateDebut->toDateString(),
                     'date_fin'      => $dateFin->toDateString(),
                     'contrat'       => [
-                        'id'          => $contrat->id,
-                        'contenu_html'=> $contrat->contenu_html,
-                        'statut'      => $contrat->statut_signature,
+                        'id'              => $contrat->id,
+                        'idContrat'       => $contrat->id,
+                        'location_id'     => $location->id,
+                        'urlPdf'          => $contrat->urlPdf,
+                        'dateCreation'    => $contrat->dateCreation?->toIso8601String(),
+                        'statutSignature' => $contrat->statutSignature,
+                        'contenu_html'    => $contrat->contenu_html,
                     ],
                     'locked_until'  => $bien->locked_until?->toIso8601String(),
                 ],
@@ -195,18 +205,74 @@ class LocationController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/mobile/locations/{id}/refuser-contrat
+    // Le client décline / refuse le contrat -> annule la location & déverrouille le bien
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function refuserContrat(Request $request, string $id): JsonResponse
+    {
+        $location = Location::with(['bien', 'contrat'])
+            ->where('locataire_id', $request->user()->id)
+            ->findOrFail($id);
+
+        DB::beginTransaction();
+        try {
+            // 1. Marquer la location comme annulée
+            $location->update(['statut' => 'annule']);
+
+            // 2. Marquer le contrat comme refusé
+            if ($location->contrat) {
+                $location->contrat->update([
+                    'statut_signature' => 'refuse',
+                ]);
+            }
+
+            // 3. Déverrouiller le bien pour libérer la réservation
+            if ($location->bien) {
+                $location->bien->deverrouiller();
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Contrat refusé. La réservation a été annulée et le bien est de nouveau disponible.',
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors du refus du contrat.',
+                'error'   => app()->isLocal() ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // POST /api/mobile/locations/{id}/payer
-    // Initie le paiement (simulation — sans API externe pour l'instant)
+    // Initie le paiement via Semoa CashPay API V2.0
+    // Opérateurs supportés : TMONEY | FLOOZ | CARD
     // ─────────────────────────────────────────────────────────────────────────
 
     public function payer(Request $request, string $id): JsonResponse
     {
         $request->validate([
-            'operateur_paiement'    => 'required|string|max:100',
-            'reference_transaction' => 'nullable|string|max:255',
+            'operateur_paiement' => 'required|string|in:TMONEY,FLOOZ,CARD,tmoney,flooz,card',
+            'telephone'          => [
+                'required_if:operateur_paiement,TMONEY,FLOOZ,tmoney,flooz',
+                'nullable',
+                'string',
+                'regex:/^(\+?228)?[79]\d{7}$/',
+            ],
+        ], [
+            'telephone.required_if' => 'Le numéro de téléphone Mobile Money est obligatoire.',
+            'telephone.regex'       => 'Le numéro de téléphone saisi est invalide (ex: 90123456 ou +22890123456).',
         ]);
 
-        $location = Location::where('locataire_id', $request->user()->id)->findOrFail($id);
+        $location = Location::with(['locataire', 'bien'])
+            ->where('locataire_id', $request->user()->id)
+            ->findOrFail($id);
 
         if ($location->statut !== 'en_attente_paiement') {
             return response()->json([
@@ -215,39 +281,145 @@ class LocationController extends Controller
             ], 422);
         }
 
+        $operateur  = strtoupper($request->operateur_paiement);
+        $telephone  = trim($request->telephone ?? '');
+
+        // Formater en E.164 (+228) si 8 chiffres fournis
+        if ($telephone !== '' && !str_starts_with($telephone, '+')) {
+            if (str_starts_with($telephone, '228')) {
+                $telephone = '+' . $telephone;
+            } else {
+                $telephone = '+228' . $telephone;
+            }
+        }
+
+        if (in_array($operateur, ['TMONEY', 'FLOOZ']) && empty($telephone)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Le numéro de téléphone est obligatoire pour valider le paiement Mobile Money.',
+            ], 422);
+        }
+        $reference  = 'LOC-' . strtoupper(substr($location->id, 0, 8));
+        $montant    = (float) $location->montant_total;
+
+        // Si le montant total dans la DB est à 0, tenter de le recalculer depuis le prix public du bien
+        if ($montant <= 0) {
+            $prixPublic = (float) ($location->bien?->prix_public ?? 0);
+            if ($prixPublic > 0 && $location->duree_mois > 0) {
+                $montant = round($prixPublic * $location->duree_mois, 2);
+                $location->update(['montant_total' => $montant]);
+            }
+        }
+
+        if ($montant <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Le montant de la location doit être strictement supérieur à 0 FCFA pour être envoyé à la passerelle Semoa.',
+            ], 422);
+        }
+
+        // ── 0. Vérification d'Idempotence ────────────────────────────────────
+        // Évite la création de factures Semoa en double en cas de double-clic ou de re-soumission rapide.
+        $existingPaiement = Paiement::where('location_id', $location->id)
+            ->where('statut', 'initie')
+            ->where('operateur_paiement', $operateur)
+            ->where('created_at', '>=', now()->subMinutes(15))
+            ->latest()
+            ->first();
+
+        if ($existingPaiement && $existingPaiement->semoa_bill_id) {
+            Log::info('[Paiement Semoa] Idempotence : réutilisation de la facture existante', [
+                'location_id'   => $location->id,
+                'paiement_id'   => $existingPaiement->id,
+                'semoa_bill_id' => $existingPaiement->semoa_bill_id,
+            ]);
+
+            $instructions = match($operateur) {
+                'TMONEY' => "Composez #145# sur votre téléphone Togo Cellulaire pour confirmer le paiement T-Money de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'FLOOZ'  => "Composez *155# sur votre téléphone Moov Africa. Une notification PUSH va apparaître pour confirmer le paiement Flooz de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'CARD'   => "Vous allez être redirigé vers le portail de paiement sécurisé.",
+                default  => "Suivez les instructions de votre opérateur.",
+            };
+
+            return response()->json([
+                'success'     => true,
+                'message'     => 'Demande de paiement déjà en cours.',
+                'data'        => [
+                    'paiement_id'       => $existingPaiement->id,
+                    'bill_id'           => $existingPaiement->semoa_bill_id,
+                    'montant'           => $montant,
+                    'operateur'         => $operateur,
+                    'statut'            => 'initie',
+                    'instructions'      => $instructions,
+                    'payment_url'       => 'https://sandbox.cashpay.tg/facture/' . $existingPaiement->semoa_bill_id,
+                ],
+            ]);
+        }
+
         DB::beginTransaction();
         try {
+            // ── 1. Créer l'enregistrement de paiement local ───────────────
             $paiement = Paiement::create([
                 'location_id'           => $location->id,
-                'montant'               => $location->montant_total,
-                'operateur_paiement'    => $request->operateur_paiement,
-                'reference_transaction' => $request->reference_transaction,
+                'montant'               => $montant,
+                'operateur_paiement'    => $operateur,
+                'reference_transaction' => $reference,
                 'statut'                => 'initie',
+            ]);
+
+            // ── 2. Appeler Semoa CashPay API ─────────────────────────────
+            $semoa = app(SemoaService::class);
+            $callbackUrl = url('/api/webhooks/semoa?paiement_id=' . $paiement->id);
+
+            $result = $semoa->createOrder([
+                'montant'      => $montant,
+                'telephone'    => $telephone,
+                'operateur'    => $operateur,
+                'reference'    => $reference . '-' . $paiement->id,
+                'description'  => "Location bien : {$location->bien?->titre} — {$location->duree_mois} mois",
+                'callback_url' => $callbackUrl,
+            ]);
+
+            // ── 3. Sauvegarder la référence Semoa ───────────────────────
+            $paiement->update([
+                'reference_transaction' => $result['order_reference'] ?? $reference,
+                'semoa_bill_id'         => $result['order_reference'] ?? null,
             ]);
 
             DB::commit();
 
-            // NOTE : En production, ici on appellerait l'API de l'opérateur
-            // et on retournerait une URL de redirection ou un code USSD.
-            // Pour l'instant on retourne le paiement initié (simulation).
+            // ── Construire les instructions selon l'opérateur ─────────────
+            $billUrl = $result['bill_url'] ?? null;
+            $instructions = match($operateur) {
+                'TMONEY' => "Composez #145# sur votre téléphone Togo Cellulaire pour confirmer le paiement T-Money de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'FLOOZ'  => "Composez *155# sur votre téléphone Moov Africa. Une notification PUSH va apparaître pour confirmer le paiement Flooz de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'CARD'   => "Vous allez être redirigé vers le portail de paiement sécurisé.",
+                default  => "Suivez les instructions de votre opérateur.",
+            };
+
             return response()->json([
-                'success'    => true,
-                'message'    => 'Paiement initié. Confirmez votre paiement via ' . $request->operateur_paiement . '.',
-                'data'       => [
-                    'paiement_id'        => $paiement->id,
-                    'montant'            => (float) $paiement->montant,
-                    'operateur'          => $paiement->operateur_paiement,
-                    'statut'             => $paiement->statut,
-                    'instructions'       => "Composez le code de paiement {$request->operateur_paiement} pour valider.",
+                'success'     => true,
+                'message'     => 'Demande de paiement envoyée via Semoa.',
+                'data'        => [
+                    'paiement_id'       => $paiement->id,
+                    'bill_id'           => $result['order_reference'] ?? null,
+                    'montant'           => $montant,
+                    'operateur'         => $operateur,
+                    'statut'            => 'initie',
+                    'instructions'      => $instructions,
+                    'payment_url'       => $billUrl,
                 ],
             ]);
 
         } catch (\Throwable $e) {
             DB::rollBack();
+            Log::error('[Paiement Semoa] Erreur initiation', [
+                'location_id' => $id,
+                'error'       => $e->getMessage(),
+            ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Erreur lors de l\'initiation du paiement.',
-                'error'   => app()->isLocal() ? $e->getMessage() : null,
+                'message' => 'Erreur lors de l\'initiation du paiement Semoa : ' . (app()->isLocal() ? $e->getMessage() : 'Veuillez réessayer.'),
             ], 500);
         }
     }
@@ -268,11 +440,72 @@ class LocationController extends Controller
         $location = Location::with(['bien', 'contrat'])->findOrFail($id);
         $paiement = Paiement::where('location_id', $location->id)->findOrFail($request->paiement_id);
 
-        if ($paiement->statut !== 'initie') {
+        // Si le paiement est déjà traité avec succès, on renvoie directement le reçu existant
+        if ($paiement->statut === 'confirme' || $paiement->statut === 'succes') {
+            $recu = Recu::where('paiement_id', $paiement->id)->first();
+            return response()->json([
+                'success' => true,
+                'message' => 'Paiement déjà confirmé !',
+                'data'    => [
+                    'location_id' => $location->id,
+                    'statut'      => 'actif',
+                    'recu'        => $recu ? [
+                        'id'          => $recu->id,
+                        'numero_recu' => $recu->numero_recu,
+                        'date'        => $recu->date_emission->toIso8601String(),
+                    ] : null,
+                    'dates'       => [
+                        'debut' => $location->date_debut->toDateString(),
+                        'fin'   => $location->date_fin->toDateString(),
+                    ],
+                ],
+            ]);
+        }
+
+        // Si le paiement est échoué, on bloque
+        if ($paiement->statut === 'echoue') {
             return response()->json([
                 'success' => false,
-                'message' => 'Ce paiement a déjà été traité.',
+                'message' => 'Ce paiement a échoué ou a été annulé.',
             ], 422);
+        }
+
+        // Si le paiement est toujours initié, on vérifie son statut réel auprès de Semoa
+        if ($paiement->statut === 'initie') {
+            $semoa = app(SemoaService::class);
+            
+            // Si on n'est pas en simulation, on interroge Semoa
+            if (!config('services.semoa.simulate')) {
+                try {
+                    $order = $semoa->getOrder($paiement->reference_transaction);
+                    $state = strtoupper($order['state'] ?? 'PENDING');
+
+                    if ($state === 'PAID') {
+                        // Le paiement est payé, on continue pour le confirmer
+                    } elseif (in_array($state, ['CANCELLED', 'FAILED', 'EXPIRED', 'ERROR'])) {
+                        $paiement->update(['statut' => 'echoue']);
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Le paiement a été rejeté ou annulé par l\'opérateur.',
+                        ], 422);
+                    } else {
+                        // Toujours en attente (Pending, etc.)
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Le paiement est toujours en cours. Veuillez valider la transaction sur votre téléphone puis réessayer.',
+                        ], 200); // Code 200 avec success: false pour permettre au client de retenter
+                    }
+                } catch (\Throwable $e) {
+                    Log::error('[Paiement Semoa] Échec de vérification du statut', [
+                        'paiement_id' => $paiement->id,
+                        'error'       => $e->getMessage(),
+                    ]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Impossible de vérifier le statut auprès de Semoa. Veuillez réessayer.',
+                    ], 500);
+                }
+            }
         }
 
         DB::beginTransaction();
@@ -283,7 +516,7 @@ class LocationController extends Controller
 
             // 1. Valider le paiement
             $paiement->update([
-                'statut'                => 'succes',
+                'statut'                => 'confirme',
                 'reference_transaction' => $request->reference_transaction ?? $paiement->reference_transaction,
             ]);
 
@@ -410,19 +643,33 @@ class LocationController extends Controller
             return response()->json(['success' => false, 'message' => 'Contrat introuvable.'], 404);
         }
 
-        // Si le PDF existe, on le sert depuis le stockage privé
+        // Si le PDF existe déjà sur le disque, le télécharger
         if ($contrat->fichier_pdf && Storage::disk('local')->exists($contrat->fichier_pdf)) {
             return Storage::disk('local')->download(
                 $contrat->fichier_pdf,
-                "Contrat-{$location->id}.pdf"
+                "Contrat-ImmoPro-{$location->id}.pdf"
             );
         }
 
-        // Fallback : retourner le contenu HTML si le PDF n'est pas disponible
-        return response()->json([
-            'success'      => true,
-            'contenu_html' => $contrat->contenu_html,
-            'message'      => 'PDF non disponible. Contenu HTML retourné.',
+        // Générer le vrai PDF binaire avec DomPDF
+        if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
+            $pdfContent = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($contrat->contenu_html)->output();
+            
+            $annee  = now()->year;
+            $chemin = "contrats/{$annee}/CTR-{$location->id}.pdf";
+            Storage::disk('local')->put($chemin, $pdfContent);
+            $contrat->update(['fichier_pdf' => $chemin]);
+
+            return response($pdfContent, 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => "attachment; filename=\"Contrat-ImmoPro-{$location->id}.pdf\"",
+            ]);
+        }
+
+        // Fallback HTML si DomPDF n'est pas actif
+        return response($contrat->contenu_html, 200, [
+            'Content-Type'        => 'text/html; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"Contrat-ImmoPro-{$location->id}.html\"",
         ]);
     }
 
@@ -465,27 +712,89 @@ class LocationController extends Controller
     private function genererContenuContrat(Location $location, Bien $bien, $locataire): string
     {
         $proprio = \App\Models\User::find($location->proprietaire_id);
-        $dateDebut = $location->date_debut->format('d/m/Y');
-        $dateFin   = $location->date_fin->format('d/m/Y');
-        $montant   = number_format((float) $location->montant_total / $location->duree_mois, 0, ',', ' ');
+        $dateDebut = \Carbon\Carbon::parse($location->date_debut)->format('d/m/Y');
+        $loyerMensuelPublic = number_format((float) $bien->prix_public, 0, ',', ' ') . ' FCFA';
+        $totalLocation = number_format((float) $location->montant_total, 0, ',', ' ') . ' FCFA';
 
-        return "
-        <h1>CONTRAT DE LOCATION</h1>
-        <p><strong>Entre les soussignés :</strong></p>
-        <p><strong>BAILLEUR :</strong> {$proprio?->first_name} {$proprio?->last_name}</p>
-        <p><strong>LOCATAIRE :</strong> {$locataire->first_name} {$locataire->last_name}</p>
-        <hr>
-        <h2>BIEN LOUÉ</h2>
-        <p><strong>Adresse :</strong> {$bien->adresse}</p>
-        <p><strong>Type :</strong> {$bien->type_bien}</p>
-        <h2>CONDITIONS DE LOCATION</h2>
-        <p><strong>Durée :</strong> {$location->duree_mois} mois</p>
-        <p><strong>Du :</strong> {$dateDebut} <strong>Au :</strong> {$dateFin}</p>
-        <p><strong>Loyer mensuel :</strong> {$montant} FCFA</p>
-        <p><strong>Montant total :</strong> " . number_format((float) $location->montant_total, 0, ',', ' ') . " FCFA</p>
-        <hr>
-        <p>Le présent contrat est soumis aux conditions générales de la plateforme ImmoPro.</p>
-        ";
+        // Sélection dynamique du modèle de contrat adapté à la catégorie du bien (Habitation, Commercial, Meublé)
+        $template = $this->trouverModeleContratPourBien($bien);
+
+        $html = $template ? $template->contenu_html : '';
+
+        $nomProprio = trim(($proprio?->first_name ?? '') . ' ' . ($proprio?->last_name ?? ''));
+        if (empty($nomProprio)) {
+            $nomProprio = $proprio?->name ?? 'Propriétaire ImmoPro';
+        }
+
+        $nomLocataire = trim(($locataire->first_name ?? '') . ' ' . ($locataire->last_name ?? ''));
+        if (empty($nomLocataire)) {
+            $nomLocataire = $locataire->name ?? 'Locataire';
+        }
+
+        $replacements = [
+            '{NOM_LOCATAIRE}'     => $nomLocataire,
+            '{TEL_LOCATAIRE}'     => $locataire->telephone ?? 'Non renseigné',
+            '{EMAIL_LOCATAIRE}'   => $locataire->email ?? 'Non renseigné',
+            '{NOM_PROPRIETAIRE}'   => $nomProprio,
+            '{TEL_PROPRIETAIRE}'   => $proprio?->telephone ?? 'Non renseigné',
+            '{TITRE_BIEN}'        => $bien->titre ?? 'Bien Immobilier',
+            '{ADRESSE_BIEN}'      => $bien->adresse ?? 'Lomé',
+            '{TYPE_BIEN}'         => ucfirst($bien->type_bien ?? 'Habitation'),
+            '{LOYER_MENSUEL}'     => $loyerMensuelPublic,
+            '{DATE_DEBUT}'        => $dateDebut,
+            '{DUREE_MOIS}'        => $location->duree_mois,
+            '{TOTAL_LOCATION}'    => $totalLocation,
+        ];
+
+        foreach ($replacements as $key => $val) {
+            $html = str_replace($key, (string) $val, $html);
+        }
+
+        return $html;
+    }
+
+    /**
+     * Recherche dynamiquement le modèle de contrat correspondant au type et à la catégorie du bien.
+     */
+    private function trouverModeleContratPourBien(Bien $bien): ?\App\Models\ContratTemplate
+    {
+        $typeBien = strtolower($bien->type_bien ?? '');
+        $caracteristiques = (array) ($bien->caracteristiques ?? []);
+        $estMeuble = !empty($caracteristiques['meuble']) || !empty($caracteristiques['est_meuble']) || $typeBien === 'meuble';
+
+        // 1. Si le bien est meublé ou courte durée
+        if ($estMeuble) {
+            $template = \App\Models\ContratTemplate::where('type', 'meuble')->where('est_actif', true)->first();
+            if ($template) return $template;
+        }
+
+        // 2. Si le bien est un local commercial / bureau / boutique
+        if (in_array($typeBien, ['bureau_commerce', 'bureau', 'commerce', 'magasin', 'commercial'])) {
+            $template = \App\Models\ContratTemplate::where('type', 'commercial')->where('est_actif', true)->first();
+            if ($template) return $template;
+        }
+
+        // 3. Si le bien est à usage d'habitation (maison, villa, appartement, studio, etc.)
+        if (in_array($typeBien, ['habitation', 'maison', 'villa', 'appartement', 'chambre_studio', 'duplex'])) {
+            $template = \App\Models\ContratTemplate::where('type', 'habitation')->where('est_actif', true)->first();
+            if ($template) return $template;
+        }
+
+        // 4. Recherche par correspondance exacte du type/slug
+        $templateDirect = \App\Models\ContratTemplate::where('type', $typeBien)->where('est_actif', true)->first();
+        if ($templateDirect) return $templateDirect;
+
+        // 5. Fallback : Modèle par défaut ou premier modèle actif disponible
+        $fallback = \App\Models\ContratTemplate::where('est_defaut', true)->first()
+            ?? \App\Models\ContratTemplate::where('est_actif', true)->first();
+
+        if (! $fallback) {
+            (new \Database\Seeders\ContratTemplateSeeder())->run();
+            $fallback = \App\Models\ContratTemplate::where('est_defaut', true)->first()
+                ?? \App\Models\ContratTemplate::first();
+        }
+
+        return $fallback;
     }
 
     private function genererPdfContrat(Contrat $contrat, Location $location): ?string
@@ -525,5 +834,87 @@ class LocationController extends Controller
 
         Storage::disk('local')->put($chemin, $pdf->output());
         return $chemin;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/mobile/historique-paiements
+    // Historique des paiements du client connecté
+    // ─────────────────────────────────────────────────────────────────────────
+    public function historiquePaiements(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $locations = \App\Models\Location::with(['bien', 'paiement', 'recu'])
+            ->where('client_id', $user->id)
+            ->latest()
+            ->paginate(20);
+
+        $data = $locations->map(function ($loc) {
+            $bien = $loc->bien;
+            return [
+                'location_id'   => $loc->id,
+                'statut'        => $loc->statut,
+                'date_debut'    => $loc->date_debut,
+                'date_fin'      => $loc->date_fin,
+                'duree_mois'    => $loc->duree_mois,
+                'montant_total' => $loc->montant_total,
+                'created_at'    => $loc->created_at,
+                'bien' => $bien ? [
+                    'id'      => $bien->id,
+                    'titre'   => $bien->titre,
+                    'adresse' => $bien->adresse,
+                    'ville'   => $bien->ville,
+                    'image'   => $bien->medias()->where('type', 'image')->orderBy('ordre')->first()?->url,
+                ] : null,
+                'paiement' => $loc->paiement ? [
+                    'id'                    => $loc->paiement->id,
+                    'montant'               => $loc->paiement->montant,
+                    'statut'                => $loc->paiement->statut,
+                    'operateur_paiement'    => $loc->paiement->operateur_paiement,
+                    'reference_transaction' => $loc->paiement->reference_transaction,
+                    'created_at'            => $loc->paiement->created_at,
+                ] : null,
+                'recu' => $loc->recu ? [
+                    'id'          => $loc->recu->id,
+                    'numero_recu' => $loc->recu->numero_recu,
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'success'      => true,
+            'data'         => $data,
+            'current_page' => $locations->currentPage(),
+            'last_page'    => $locations->lastPage(),
+            'total'        => $locations->total(),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/mobile/statistiques
+    // Statistiques du tableau de bord client
+    // ─────────────────────────────────────────────────────────────────────────
+    public function statistiques(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $totalLocations    = \App\Models\Location::where('client_id', $user->id)->count();
+        $locationsActives  = \App\Models\Location::where('client_id', $user->id)->where('statut', 'actif')->count();
+        $totalDepenses     = \App\Models\Location::where('client_id', $user->id)
+                                ->whereHas('paiement', fn($q) => $q->where('statut', 'valide'))
+                                ->sum('montant_total');
+        $totalFavoris      = $user->favoris()->count();
+        $totalBiensPublies = \App\Models\Bien::where('user_id', $user->id)->where('statut', 'publie')->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'total_locations'    => $totalLocations,
+                'locations_actives'  => $locationsActives,
+                'total_depenses'     => (float) $totalDepenses,
+                'total_favoris'      => $totalFavoris,
+                'total_biens_publies' => $totalBiensPublies,
+            ],
+        ]);
     }
 }

@@ -20,10 +20,10 @@ class UpdateBienRequest extends FormRequest
     public function rules(): array
     {
         $typeBien    = $this->input('type_bien', $this->route('bien')->type_bien);
-        $sansChambre = in_array($typeBien, Bien::typeSansChambres());
+        $sansChambre = !in_array($typeBien, ['appartement', 'maison', 'villa']);
 
         return [
-            'type_bien'        => 'sometimes|in:appartement,maison,villa,terrain,bureau_commerce',
+            'type_bien'        => 'sometimes|string|exists:categories,slug',
             'type_transaction' => 'sometimes|in:vente,location,colocation',
             'titre'            => 'sometimes|string|min:5|max:255',
             'prix'             => 'sometimes|numeric|min:0',

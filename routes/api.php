@@ -24,6 +24,7 @@ use App\Http\Controllers\Client\ClientNotificationController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\LocationController;
 use App\Http\Controllers\Client\ProprietaireBienController;
+use App\Http\Controllers\SemoaWebhookController;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health check (public)
@@ -33,6 +34,16 @@ Route::get('/health', fn () => response()->json([
     'status'  => 'ok',
     'message' => 'ImmoPro API is running',
 ]));
+
+Route::get('/semoa/health', function (\App\Services\Payment\SemoaService $semoa) {
+    return response()->json($semoa->testConnexion());
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Webhook Semoa CashPay (public — appelé par les serveurs Semoa)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Route::post('/webhooks/semoa', [SemoaWebhookController::class, 'handle']);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth public — Client (inscription + OTP)
@@ -121,12 +132,24 @@ Route::middleware('auth:sanctum')->group(function () {
         // ── Module Location (tunnel de location) ──────────────────────────────
         Route::prefix('mobile/locations')->group(function () {
             Route::post('/',                               [LocationController::class, 'initier']);
+            Route::post('/initier',                        [LocationController::class, 'initier']);
             Route::post('/{id}/accepter-contrat',          [LocationController::class, 'accepterContrat']);
+            Route::post('/{id}/refuser-contrat',           [LocationController::class, 'refuserContrat']);
             Route::post('/{id}/payer',                     [LocationController::class, 'payer']);
             Route::post('/{id}/confirmer-paiement',        [LocationController::class, 'confirmerPaiement']);
             Route::get ('/{id}/contrat/telecharger',       [LocationController::class, 'telechargerContrat']);
             Route::get ('/{id}/recu/telecharger',          [LocationController::class, 'telechargerRecu']);
         });
+
+        // ── Favoris ───────────────────────────────────────────────────────────
+        Route::prefix('favoris')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\FavoriController::class, 'index']);
+            Route::post('/{bien}/toggle', [\App\Http\Controllers\Api\FavoriController::class, 'toggle']);
+        });
+
+        // ── Historique paiements & Statistiques client ─────────────────────
+        Route::get('/mobile/historique-paiements', [LocationController::class, 'historiquePaiements']);
+        Route::get('/mobile/statistiques', [LocationController::class, 'statistiques']);
     });
 
     
@@ -167,6 +190,26 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get  ('/commissions',                   [\App\Http\Controllers\Admin\CommissionController::class, 'index']);
         Route::get  ('/reversements',                  [\App\Http\Controllers\Admin\CommissionController::class, 'reversements']);
         Route::patch('/reversements/{id}/traiter',     [\App\Http\Controllers\Admin\CommissionController::class, 'traiterReversement']);
+    });
+
+    // ── Gestion des modèles de contrat (admin) ───────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/contrat-templates')->group(function () {
+        Route::get   ('/',                   [\App\Http\Controllers\Admin\ContratTemplateController::class, 'index']);
+        Route::post  ('/',                   [\App\Http\Controllers\Admin\ContratTemplateController::class, 'store']);
+        Route::get   ('/placeholders',       [\App\Http\Controllers\Admin\ContratTemplateController::class, 'placeholders']);
+        Route::post  ('/preview',            [\App\Http\Controllers\Admin\ContratTemplateController::class, 'preview']);
+        Route::get   ('/{id}',               [\App\Http\Controllers\Admin\ContratTemplateController::class, 'show']);
+        Route::put   ('/{id}',               [\App\Http\Controllers\Admin\ContratTemplateController::class, 'update']);
+        Route::delete('/{id}',               [\App\Http\Controllers\Admin\ContratTemplateController::class, 'destroy']);
+        Route::patch ('/{id}/defaut',        [\App\Http\Controllers\Admin\ContratTemplateController::class, 'setDefault']);
+        Route::patch ('/{id}/toggle-status', [\App\Http\Controllers\Admin\ContratTemplateController::class, 'toggleStatus']);
+    });
+
+    // Rétro-compatibilité route au singulier
+    Route::middleware('role:admin')->prefix('admin/contrat-template')->group(function () {
+        Route::get ('/',        [\App\Http\Controllers\Admin\ContratTemplateController::class, 'show']);
+        Route::put ('/',        [\App\Http\Controllers\Admin\ContratTemplateController::class, 'update']);
+        Route::post('/preview', [\App\Http\Controllers\Admin\ContratTemplateController::class, 'preview']);
     });
 
    

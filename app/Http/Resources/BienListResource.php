@@ -22,6 +22,7 @@ class BienListResource extends JsonResource
         return [
             'id'               => $this->id,
             'type_bien'        => $this->type_bien,
+            'categorie_nom'    => $this->getCategorie()?->nom ?? ucfirst(str_replace('_', ' ', $this->type_bien)),
             'type_transaction' => $this->type_transaction,
             'titre'            => $this->titre,
             'prix'             => (float) $this->prix,

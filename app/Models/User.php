@@ -93,4 +93,10 @@ class User extends Authenticatable
     {
         return $this->hasMany(\App\Models\Bien::class, 'agent_id');
     }
+
+    public function favoris(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Bien::class, 'favoris', 'user_id', 'bien_id')
+                    ->withTimestamps();
+    }
 }

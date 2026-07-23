@@ -17,11 +17,11 @@ class StoreBienRequest extends FormRequest
     public function rules(): array
     {
         $typeBien    = $this->input('type_bien');
-        $sansChambre = in_array($typeBien, Bien::typeSansChambres());
+        $sansChambre = !in_array($typeBien, ['appartement', 'maison', 'villa']);
 
         $rules = [
             // ── Champs obligatoires ────────────────────────────────────────
-            'type_bien'        => 'required|in:appartement,maison,villa,terrain,bureau_commerce,chambre_studio',
+            'type_bien'        => 'required|string|exists:categories,slug',
             'type_transaction' => 'required|in:vente,location,colocation',
             'titre'            => 'required|string|min:5|max:255',
             'prix'             => 'required|numeric|min:0',

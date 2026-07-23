@@ -200,7 +200,25 @@ class BienController extends Controller
 
     public function update(UpdateBienRequest $request, Bien $bien): JsonResponse
     {
+        if (in_array($bien->statut, ['valide', 'publie', 'archive'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Une annonce validée, publiée ou archivée ne peut plus être modifiée.',
+            ], 422);
+        }
+
         $bien->update($request->validated());
+
+        if ($request->has('prix') || $request->has('type_bien')) {
+            $categorie = $bien->getCategorie();
+            if ($categorie) {
+                $bien->update([
+                    'prix_public' => $categorie->calculerPrixPublic((float) $bien->prix),
+                ]);
+            } else {
+                $bien->update(['prix_public' => $bien->prix]);
+            }
+        }
 
         // Si modifié après rejet → repasse en attente
         if ($bien->statut === 'rejete') {

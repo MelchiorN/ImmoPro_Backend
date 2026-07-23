@@ -18,6 +18,7 @@ class BienResource extends JsonResource
 
             // Classification
             'type_bien'        => $this->type_bien,
+            'categorie_nom'    => $this->getCategorie()?->nom ?? ucfirst(str_replace('_', ' ', $this->type_bien)),
             'type_transaction' => $this->type_transaction,
 
             // Infos
@@ -61,6 +62,7 @@ class BienResource extends JsonResource
                 'first_name' => $this->agent->first_name,
                 'last_name'  => $this->agent->last_name,
                 'email'      => $this->agent->email,
+                'telephone'  => $this->agent->telephone,
             ] : null),
 
             // Rapport lié

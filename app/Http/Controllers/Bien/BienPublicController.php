@@ -19,7 +19,7 @@ class BienPublicController extends Controller
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'type_bien'        => 'nullable|in:appartement,maison,villa,terrain,bureau_commerce,chambre_studio',
+            'type_bien'        => 'nullable|string|max:100',
             'type_transaction' => 'nullable|in:vente,location,colocation',
             'prix_min'         => 'nullable|numeric|min:0',
             'prix_max'         => 'nullable|numeric|min:0',
@@ -116,7 +116,7 @@ class BienPublicController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $bien = Bien::with(['medias', 'documents', 'proprietaire'])
+        $bien = Bien::with(['medias', 'documents', 'proprietaire', 'agent'])
             ->publie()
             ->findOrFail($id);
 

@@ -19,6 +19,7 @@ class Paiement extends Model
         'montant',
         'operateur_paiement',
         'reference_transaction',
+        'semoa_bill_id',
         'statut',
     ];
 
@@ -44,5 +45,5 @@ class Paiement extends Model
         return $this->hasOne(Commission::class);
     }
 
-    public const STATUTS = ['initie', 'succes', 'echoue'];
+    public const STATUTS = ['initie', 'en_attente', 'confirme', 'succes', 'echoue'];
 }

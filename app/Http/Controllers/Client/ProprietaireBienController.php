@@ -156,6 +156,7 @@ class ProprietaireBienController extends Controller
             'prix'             => (float) $b->prix,
             'adresse'          => $b->adresse,
             'type_bien'        => $b->type_bien,
+            'categorie_nom'    => $b->getCategorie()?->nom ?? ucfirst(str_replace('_', ' ', $b->type_bien)),
             'type_transaction' => $b->type_transaction,
             'statut'           => $this->normalizeStatut($b->statut),
             'surface'          => $b->surface ? (float) $b->surface : null,
