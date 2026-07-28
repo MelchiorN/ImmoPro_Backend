@@ -13,6 +13,8 @@ class BienResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $canSee = $this->canSeeAdminNote($request);
+
         return [
             'id'               => $this->id,
 
@@ -21,11 +23,14 @@ class BienResource extends JsonResource
             'categorie_nom'    => $this->getCategorie()?->nom ?? ucfirst(str_replace('_', ' ', $this->type_bien)),
             'type_transaction' => $this->type_transaction,
 
-            // Infos
+            // Infos de base
             'titre'            => $this->titre,
             'description'      => $this->description,
             'prix'             => (float) $this->prix,
             'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
+            'unite_prix'       => $this->unite_prix,
+            'avance_mois'      => $this->avance_mois,
+            'caution'          => $this->caution ? (float) $this->caution : null,
             'surface'          => $this->surface ? (float) $this->surface : null,
             'nb_pieces'        => $this->nb_pieces,
             'nb_salles_bain'   => $this->nb_salles_bain,
@@ -36,17 +41,27 @@ class BienResource extends JsonResource
             'latitude'         => (float) $this->latitude,
             'longitude'        => (float) $this->longitude,
 
-            // Statut
+            // Statut de publication
             'statut'           => $this->statut,
             'publie_le'        => $this->publie_le?->toIso8601String(),
 
-            // Note admin (visible uniquement pour le propriétaire ou admin)
-            'note_admin'       => $this->when(
-                $this->canSeeAdminNote($request),
-                $this->note_admin
-            ),
+            // Frais d'étude
+            'frais_etude_statut' => $this->frais_etude_statut,
 
-            // Propriétaire (allégé)
+            // Note admin (visible pour le propriétaire, admin, agent)
+            'note_admin'       => $this->when($canSee, $this->note_admin),
+
+            // Identité du déposant (visible pour proprio, admin, agent)
+            'role_deposant'            => $this->when($canSee, $this->role_deposant),
+            'proprietaire_nom'         => $this->when($canSee, $this->proprietaire_nom),
+            'proprietaire_prenom'      => $this->when($canSee, $this->proprietaire_prenom),
+            'proprietaire_sexe'        => $this->when($canSee, $this->proprietaire_sexe),
+            'proprietaire_nationalite' => $this->when($canSee, $this->proprietaire_nationalite),
+            'proprietaire_telephone'   => $this->when($canSee, $this->proprietaire_telephone),
+            'proprietaire_email'       => $this->when($canSee, $this->proprietaire_email),
+            'proprietaire_adresse'     => $this->when($canSee, $this->proprietaire_adresse),
+
+            // Propriétaire du compte
             'proprietaire'     => $this->whenLoaded('proprietaire', fn () => [
                 'id'         => $this->proprietaire->id,
                 'first_name' => $this->proprietaire->first_name,
@@ -73,13 +88,9 @@ class BienResource extends JsonResource
                 'soumis_le' => $this->rapport->soumis_le?->toIso8601String(),
             ] : null),
 
-            // Relations
-            'medias'           => MediaBienResource::collection(
-                $this->whenLoaded('medias')
-            ),
-            'documents'        => DocumentBienResource::collection(
-                $this->whenLoaded('documents')
-            ),
+            // Médias & Documents
+            'medias'           => MediaBienResource::collection($this->whenLoaded('medias')),
+            'documents'        => DocumentBienResource::collection($this->whenLoaded('documents')),
 
             'created_at' => $this->created_at->toIso8601String(),
             'updated_at' => $this->updated_at->toIso8601String(),
@@ -89,8 +100,9 @@ class BienResource extends JsonResource
     private function canSeeAdminNote(Request $request): bool
     {
         $user = $request->user();
-        if (! $user) return false;
-
+        if (! $user) {
+            return false;
+        }
         return $user->id === $this->user_id
             || in_array($user->role, ['admin', 'agent']);
     }

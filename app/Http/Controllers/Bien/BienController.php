@@ -8,19 +8,21 @@ use App\Http\Requests\UpdateBienRequest;
 use App\Http\Resources\BienListResource;
 use App\Http\Resources\BienResource;
 use App\Models\Bien;
+use App\Models\Categorie;
+use App\Models\ConfigPublication;
 use App\Models\DocumentBien;
 use App\Models\MediaBien;
+use App\Models\Paiement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class BienController extends Controller
 {
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/mes-biens
-    // Liste des biens du propriétaire connecté
     // ─────────────────────────────────────────────────────────────────────────
 
     public function index(Request $request): JsonResponse
@@ -45,51 +47,111 @@ class BienController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/biens
-    // Créer et soumettre un bien (multipart/form-data)
+    // Étape 1 : Créer le dossier. Si frais d'étude actifs → retourner le
+    // montant à payer SANS créer le bien. Le bien est créé après paiement
+    // confirmé via POST /api/client/frais-etude/confirmer.
+    // Si frais désactivés → créer directement.
     // ─────────────────────────────────────────────────────────────────────────
 
     public function store(StoreBienRequest $request): JsonResponse
     {
-        DB::beginTransaction();
+        $user   = $request->user();
+        $config = ConfigPublication::instance();
 
+        // ── 1. Vérifier quota de publication ─────────────────────────────────
+        if (! $user->peutPublier()) {
+            return response()->json([
+                'success' => false,
+                'code'    => 'QUOTA_EPUISE',
+                'message' => 'Vous n\'avez plus de publications disponibles. Souscrivez à un abonnement.',
+                'data'    => [
+                    'essais_gratuits_restants' => $user->essais_gratuits_restants,
+                    'abonnement_actif'         => null,
+                ],
+            ], 403);
+        }
+
+        // ── 2. Calculer frais d'étude si activés ──────────────────────────────
+        if ($config->frais_etude_actifs) {
+            $categorie = Categorie::where('slug', $request->input('type_bien'))->first();
+            $frais     = $categorie ? $categorie->calculerFraisEtude((float) $request->input('prix')) : 0;
+
+            if ($frais > 0) {
+                // Stocker le payload dans un paiement "initié" temporaire
+                // sans créer le bien — on retourne les infos pour que le client paie
+                return response()->json([
+                    'success'       => false,
+                    'code'          => 'FRAIS_ETUDE_REQUIS',
+                    'message'       => 'Des frais d\'étude de dossier sont requis avant la soumission.',
+                    'data'          => [
+                        'montant_frais'     => $frais,
+                        'categorie'         => $categorie->nom,
+                        'pourcentage'       => (float) $categorie->frais_etude_pourcentage,
+                        'prix_bien'         => (float) $request->input('prix'),
+                        'instructions'      => "Payez {$frais} FCFA pour soumettre votre dossier via POST /api/client/frais-etude/initier",
+                    ],
+                ], 402);
+            }
+        }
+
+        // ── 3. Créer le bien directement (frais désactivés ou = 0) ────────────
+        return $this->creerBien($request, $user, 'non_requis');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Méthode interne partagée avec FraisEtudeController
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function creerBien(Request $request, $user, string $fraisStatut = 'non_requis', ?string $fraisPaiementId = null): JsonResponse
+    {
+        DB::beginTransaction();
         try {
-            // 1. Créer le bien
+            $typeBien  = $request->input('type_bien');
+            $categorie = Categorie::where('slug', $typeBien)->first();
+
             $bien = Bien::create([
-                'user_id'          => $request->user()->id,
-                'type_bien'        => $request->input('type_bien'),
-                'type_transaction' => $request->input('type_transaction'),
-                'titre'            => $request->input('titre'),
-                'description'      => $request->input('description'),
-                'prix'             => $request->input('prix'),
-                'surface'          => $request->input('surface'),
-                'superficie'       => $request->input('superficie'),
-                'nb_pieces'        => $request->input('nb_pieces'),
-                'nb_salles_bain'   => $request->input('nb_salles_bain'),
-                'caracteristiques' => $request->input('caracteristiques'),
-                'adresse'          => $request->input('adresse'),
-                'latitude'         => $request->input('latitude'),
-                'longitude'        => $request->input('longitude'),
-                'statut'           => 'en_attente',
+                'user_id'               => $user->id,
+                'type_bien'             => $typeBien,
+                'type_transaction'      => $request->input('type_transaction'),
+                'titre'                 => $request->input('titre'),
+                'description'           => $request->input('description'),
+                'prix'                  => $request->input('prix'),
+                'prix_public'           => $categorie
+                                            ? $categorie->calculerPrixPublic((float) $request->input('prix'))
+                                            : $request->input('prix'),
+                'unite_prix'            => $request->input('unite_prix'),
+                'avance_mois'           => $request->input('avance_mois'),
+                'caution'               => $request->input('caution'),
+                'surface'               => $request->input('surface'),
+                'superficie'            => $request->input('superficie'),
+                'nb_pieces'             => $request->input('nb_pieces'),
+                'nb_salles_bain'        => $request->input('nb_salles_bain'),
+                'caracteristiques'      => $request->input('caracteristiques'),
+                'adresse'               => $request->input('adresse'),
+                'latitude'              => $request->input('latitude'),
+                'longitude'             => $request->input('longitude'),
+                'statut'                => 'en_attente',
+                // Déposant
+                'role_deposant'         => $request->input('role_deposant', 'proprietaire'),
+                'proprietaire_nom'      => $request->input('proprietaire_nom'),
+                'proprietaire_prenom'   => $request->input('proprietaire_prenom'),
+                'proprietaire_sexe'     => $request->input('proprietaire_sexe'),
+                'proprietaire_nationalite' => $request->input('proprietaire_nationalite'),
+                'proprietaire_telephone' => $request->input('proprietaire_telephone'),
+                'proprietaire_email'    => $request->input('proprietaire_email'),
+                'proprietaire_adresse'  => $request->input('proprietaire_adresse'),
+                // Frais d'étude
+                'frais_etude_statut'         => $fraisStatut,
+                'frais_etude_paiement_id'    => $fraisPaiementId,
             ]);
 
-            // 1bis. Calculer le prix public (prix + commission catégorie)
-            $categorie = $bien->getCategorie();
-            if ($categorie) {
-                $bien->update([
-                    'prix_public' => $categorie->calculerPrixPublic((float) $bien->prix),
-                ]);
-            } else {
-                $bien->update(['prix_public' => $bien->prix]);
-            }
-
-            // 2. Sauvegarder les médias
+            // ── Médias ────────────────────────────────────────────────────────
             if ($request->hasFile('medias')) {
                 foreach ($request->file('medias') as $index => $fichier) {
-                    $ext      = $fichier->getClientOriginalExtension();
-                    $mime     = $fichier->getMimeType();
-                    $isVideo  = str_starts_with($mime, 'video/');
-                    $dossier  = "biens/{$bien->id}/medias";
-                    $chemin   = $fichier->store($dossier, 'public');
+                    $mime    = $fichier->getMimeType();
+                    $isVideo = str_starts_with($mime, 'video/');
+                    $dossier = "biens/{$bien->id}/medias";
+                    $chemin  = $fichier->store($dossier, 'public');
 
                     MediaBien::create([
                         'bien_id'        => $bien->id,
@@ -104,15 +166,18 @@ class BienController extends Controller
                 }
             }
 
-            // 3. Sauvegarder les documents
-            // Accepte : piece_identite (obligatoire), justificatif_propriete et plan_cadastral (optionnels)
-            $typesDocuments = [
-                'piece_identite'         => 'piece_identite',
-                'justificatif_propriete' => 'autre',
-                'plan_cadastral'         => 'plan_cadastral',
+            // ── Documents ─────────────────────────────────────────────────────
+            $mappingDocuments = [
+                'justificatif_propriete'    => 'justificatif_propriete',
+                'piece_identite'            => 'piece_identite',
+                'piece_identite_deposant'   => 'piece_identite_deposant',
+                'mandat_gestion'            => 'mandat_gestion',
+                'procuration'               => 'procuration',
+                'acte_succession'           => 'acte_succession',
+                'autorisation_ecrite'       => 'autorisation_ecrite',
             ];
 
-            foreach ($typesDocuments as $inputKey => $typeDoc) {
+            foreach ($mappingDocuments as $inputKey => $typeDoc) {
                 if ($request->hasFile("documents.{$inputKey}")) {
                     $fichier = $request->file("documents.{$inputKey}");
                     $dossier = "biens/{$bien->id}/documents";
@@ -130,44 +195,48 @@ class BienController extends Controller
                 }
             }
 
+            // ── Décrémenter le quota ──────────────────────────────────────────
+            $abonnement = $user->abonnementActif();
+            if ($abonnement) {
+                $abonnement->consommerUnePublication();
+            } elseif ($user->essais_gratuits_restants > 0) {
+                $user->decrement('essais_gratuits_restants');
+            }
+
             DB::commit();
 
-            // 4. Envoyer une notification aux admins et agents
+            // ── Notifier admins/agents ────────────────────────────────────────
             try {
-                $notificationService = app(\App\Services\NotificationService::class);
-                $staffUsers = \App\Models\User::whereIn('role', ['admin', 'agent'])->get();
-
-                foreach ($staffUsers as $staff) {
-                    $notificationService->notify(
+                $notif    = app(\App\Services\NotificationService::class);
+                $staffs   = \App\Models\User::whereIn('role', ['admin', 'agent'])->get();
+                foreach ($staffs as $staff) {
+                    $notif->notify(
                         $staff,
                         'nouveau_bien',
                         'Nouveau bien à vérifier',
-                        "Le propriétaire a soumis un nouveau bien ({$bien->titre}) en attente de vérification.",
+                        "Un nouveau bien ({$bien->titre}) a été soumis et est en attente de vérification.",
                         ['bien_id' => (string) $bien->id]
                     );
                 }
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("Erreur notification nouveau bien: " . $e->getMessage());
+                Log::warning('Erreur notification nouveau bien: ' . $e->getMessage());
             }
 
-            // Charger les relations pour la réponse
             $bien->load(['medias', 'documents']);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Votre annonce a été soumise pour vérification. Délai : 24-48h.',
+                'message' => 'Votre dossier a été soumis avec succès. Délai de vérification : 24-48h.',
                 'data'    => new BienResource($bien),
             ], 201);
 
         } catch (\Throwable $e) {
             DB::rollBack();
-
-            // Nettoyer les fichiers éventuellement uploadés
             if (isset($bien)) {
                 Storage::disk('public')->deleteDirectory("biens/{$bien->id}/medias");
                 Storage::disk('local')->deleteDirectory("biens/{$bien->id}/documents");
             }
-
+            Log::error('Erreur création bien: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Une erreur est survenue lors de la soumission.',
@@ -177,8 +246,7 @@ class BienController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GET /api/mes-biens/{bien}
-    // Détail d'un bien du propriétaire connecté
+    // GET /api/mes-biens/{id}
     // ─────────────────────────────────────────────────────────────────────────
 
     public function show(Request $request, string $id): JsonResponse
@@ -195,7 +263,6 @@ class BienController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // PUT /api/mes-biens/{bien}
-    // Modifier un bien (brouillon ou rejeté seulement)
     // ─────────────────────────────────────────────────────────────────────────
 
     public function update(UpdateBienRequest $request, Bien $bien): JsonResponse
@@ -211,16 +278,13 @@ class BienController extends Controller
 
         if ($request->has('prix') || $request->has('type_bien')) {
             $categorie = $bien->getCategorie();
-            if ($categorie) {
-                $bien->update([
-                    'prix_public' => $categorie->calculerPrixPublic((float) $bien->prix),
-                ]);
-            } else {
-                $bien->update(['prix_public' => $bien->prix]);
-            }
+            $bien->update([
+                'prix_public' => $categorie
+                    ? $categorie->calculerPrixPublic((float) $bien->prix)
+                    : $bien->prix,
+            ]);
         }
 
-        // Si modifié après rejet → repasse en attente
         if ($bien->statut === 'rejete') {
             $bien->update(['statut' => 'en_attente', 'note_admin' => null]);
         }
@@ -233,15 +297,13 @@ class BienController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DELETE /api/mes-biens/{bien}
-    // Supprimer (soft-delete) un bien
+    // DELETE /api/mes-biens/{id}
     // ─────────────────────────────────────────────────────────────────────────
 
     public function destroy(Request $request, string $id): JsonResponse
     {
         $bien = Bien::where('user_id', $request->user()->id)->findOrFail($id);
 
-        // On empêche la suppression d'un bien publié
         if ($bien->statut === 'publie') {
             return response()->json([
                 'success' => false,
@@ -259,51 +321,47 @@ class BienController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/mes-biens/{id}/media
-    // Mettre à jour (remplacer) les photos d'un bien du propriétaire connecté
     // ─────────────────────────────────────────────────────────────────────────
+
     public function updateMedia(Request $request, string $id): JsonResponse
     {
         $bien = Bien::where('user_id', $request->user()->id)->findOrFail($id);
 
         $request->validate([
-            'medias'   => 'required|array',
-            'medias.*' => 'required|file|image|max:10240', // max 10MB
+            'medias'   => 'required|array|min:1',
+            'medias.*' => 'required|file|image|max:10240',
         ]);
 
         DB::beginTransaction();
         try {
-            // Supprimer les anciens médias physiques et de la BD
-            $anciensMedias = MediaBien::where('bien_id', $bien->id)->get();
-            foreach ($anciensMedias as $am) {
+            $anciens = MediaBien::where('bien_id', $bien->id)->get();
+            foreach ($anciens as $am) {
                 Storage::disk('public')->delete($am->chemin);
                 $am->delete();
             }
 
-            // Enregistrer les nouveaux médias
-            if ($request->hasFile('medias')) {
-                foreach ($request->file('medias') as $index => $fichier) {
-                    $mime    = $fichier->getMimeType();
-                    $dossier = "biens/{$bien->id}/medias";
-                    $chemin  = $fichier->store($dossier, 'public');
+            foreach ($request->file('medias') as $index => $fichier) {
+                $mime    = $fichier->getMimeType();
+                $dossier = "biens/{$bien->id}/medias";
+                $chemin  = $fichier->store($dossier, 'public');
 
-                    MediaBien::create([
-                        'bien_id'        => $bien->id,
-                        'type'           => 'photo',
-                        'chemin'         => $chemin,
-                        'url'            => Storage::disk('public')->url($chemin),
-                        'est_principale' => $index === 0,
-                        'ordre'          => $index,
-                        'taille'         => $fichier->getSize(),
-                        'mime_type'      => $mime,
-                    ]);
-                }
+                MediaBien::create([
+                    'bien_id'        => $bien->id,
+                    'type'           => 'photo',
+                    'chemin'         => $chemin,
+                    'url'            => Storage::disk('public')->url($chemin),
+                    'est_principale' => $index === 0,
+                    'ordre'          => $index,
+                    'taille'         => $fichier->getSize(),
+                    'mime_type'      => $mime,
+                ]);
             }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Les images ont été mises à jour avec succès.',
+                'message' => 'Images mises à jour.',
                 'data'    => new BienResource($bien->fresh(['medias'])),
             ]);
 

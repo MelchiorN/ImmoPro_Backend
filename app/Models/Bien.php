@@ -23,6 +23,9 @@ class Bien extends Model
         'description',
         'prix',
         'prix_public',
+        'unite_prix',
+        'avance_mois',
+        'caution',
         'surface',
         'superficie',
         'nb_pieces',
@@ -36,6 +39,18 @@ class Bien extends Model
         'agent_id',
         'publie_le',
         'locked_until',
+        // Déposant
+        'role_deposant',
+        'proprietaire_nom',
+        'proprietaire_prenom',
+        'proprietaire_sexe',
+        'proprietaire_nationalite',
+        'proprietaire_telephone',
+        'proprietaire_email',
+        'proprietaire_adresse',
+        // Frais d'étude
+        'frais_etude_statut',
+        'frais_etude_paiement_id',
     ];
 
     protected function casts(): array
@@ -43,6 +58,7 @@ class Bien extends Model
         return [
             'prix'              => 'decimal:2',
             'prix_public'       => 'decimal:2',
+            'caution'           => 'decimal:2',
             'surface'           => 'decimal:2',
             'superficie'        => 'decimal:2',
             'latitude'          => 'decimal:7',
@@ -52,6 +68,15 @@ class Bien extends Model
             'caracteristiques'  => 'array',
         ];
     }
+
+    // Rôles de déposant valides
+    public const ROLES_DEPOSANT = ['proprietaire', 'agence', 'mandataire', 'heritier', 'autre'];
+
+    // Unités de prix valides
+    public const UNITES_PRIX = ['jour', 'semaine', 'mois', 'annee'];
+
+    // Statuts frais d'étude
+    public const FRAIS_ETUDE_STATUTS = ['non_requis', 'en_attente_paiement', 'paye'];
 
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
@@ -169,12 +194,42 @@ class Bien extends Model
     /** Types de biens qui n'ont pas de pièces/salles de bain. */
     public static function typeSansChambres(): array
     {
-        return ['terrain', 'bureau_commerce', 'chambre_studio'];
+        return ['terrain', 'bureau', 'commerce', 'entrepot'];
     }
 
     public function favorisPar(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(User::class, 'favoris', 'bien_id', 'user_id')
                     ->withTimestamps();
+    }
+
+    /**
+     * Paiement des frais d'étude lié à ce bien.
+     */
+    public function fraisEtudePaiement(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Paiement::class, 'frais_etude_paiement_id');
+    }
+
+    /**
+     * Tous les paiements de frais d'étude liés à ce bien (polymorphique).
+     */
+    public function paiements(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    {
+        return $this->morphMany(Paiement::class, 'payable');
+    }
+
+    // ─── Helpers déposant ─────────────────────────────────────────────────────
+
+    /** Vrai si le déposant est le propriétaire lui-même. */
+    public function deposantEstProprietaire(): bool
+    {
+        return $this->role_deposant === 'proprietaire' || $this->role_deposant === null;
+    }
+
+    /** Vrai si les frais d'étude ont été payés (ou ne sont pas requis). */
+    public function fraisEtudeOk(): bool
+    {
+        return in_array($this->frais_etude_statut, ['non_requis', 'paye']);
     }
 }

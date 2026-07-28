@@ -50,7 +50,7 @@ class CategoriePublicController extends Controller
                 'nom_champ'      => $a->nom_champ,
                 'label_affiche'  => $a->label_affiche,
                 'type_champ'     => $a->type_champ,
-                'options_enum'   => $a->options_enum,   // null sauf pour type enum
+                'options_enum'   => $a->options_enum,
                 'obligatoire'    => $a->obligatoire,
                 'est_socle'      => $a->est_socle,
                 'ordre_affichage'=> $a->ordre_affichage,
@@ -59,10 +59,12 @@ class CategoriePublicController extends Controller
         return response()->json([
             'success' => true,
             'data'    => [
-                'slug'        => $categorie->slug,
-                'nom'         => $categorie->nom,
-                'description' => $categorie->description,
-                'attributs'   => $attributs,
+                'slug'                    => $categorie->slug,
+                'nom'                     => $categorie->nom,
+                'description'             => $categorie->description,
+                'pourcentage_commission'  => (float) $categorie->pourcentage_commission,
+                'frais_etude_pourcentage' => (float) ($categorie->frais_etude_pourcentage ?? 0),
+                'attributs'               => $attributs,
             ],
         ]);
     }

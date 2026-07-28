@@ -36,6 +36,7 @@ class User extends Authenticatable
         'provider_id',
         'provider_token',
         'device_token',
+        'essais_gratuits_restants',
     ];
 
     protected $hidden = [
@@ -98,5 +99,33 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(\App\Models\Bien::class, 'favoris', 'user_id', 'bien_id')
                     ->withTimestamps();
+    }
+
+    // ─── Abonnements ──────────────────────────────────────────────────────────
+
+    public function abonnements(): HasMany
+    {
+        return $this->hasMany(UserAbonnement::class);
+    }
+
+    /**
+     * Retourne l'abonnement actif ayant encore des publications disponibles.
+     * Prend le plus ancien actif en premier (FIFO).
+     */
+    public function abonnementActif(): ?\App\Models\UserAbonnement
+    {
+        return $this->abonnements()
+            ->where('statut', 'actif')
+            ->where('nb_publications_restantes', '>', 0)
+            ->oldest('date_achat')
+            ->first();
+    }
+
+    /**
+     * Vérifie si l'utilisateur peut encore soumettre un bien gratuitement ou via abonnement.
+     */
+    public function peutPublier(): bool
+    {
+        return $this->essais_gratuits_restants > 0 || $this->abonnementActif() !== null;
     }
 }

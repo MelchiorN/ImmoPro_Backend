@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class ClientAuthController extends Controller
@@ -137,6 +138,15 @@ class ClientAuthController extends Controller
             'role'              => 'client',
             'status'            => 'active',
             'email_verified_at' => Carbon::now(),
+        ]);
+
+        if (is_null($user->email_verified_at)) {
+            $user->forceFill(['email_verified_at' => Carbon::now()])->save();
+        }
+
+        Log::info('Client email verified after OTP validation.', [
+            'user_id' => $user->id,
+            'email'   => $user->email,
         ]);
 
         // Log Spatie

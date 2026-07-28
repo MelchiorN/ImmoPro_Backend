@@ -3,6 +3,8 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use Database\Seeders\CategorieSeeder;
+use Database\Seeders\PlanAbonnementSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -24,9 +26,10 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             // UserSeeder::class,
-            // CategorieSeeder::class,
+            CategorieSeeder::class,
             // BienSeeder::class,
-            ContratTemplateSeeder::class,
+            // ContratTemplateSeeder::class,
+            // PlanAbonnementSeeder::class,
         ]);
     }
 }

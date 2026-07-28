@@ -371,6 +371,10 @@ class LocationController extends Controller
             $semoa = app(SemoaService::class);
             $callbackUrl = url('/api/webhooks/semoa?paiement_id=' . $paiement->id);
 
+            // Deep link de retour vers l'app Flutter après paiement sur le portail Semoa
+            $redirectPaye   = 'immopro://paiement/retour?statut=paye&paiement_id=' . $paiement->id;
+            $redirectAnnule = 'immopro://paiement/retour?statut=annule&paiement_id=' . $paiement->id;
+
             $result = $semoa->createOrder([
                 'montant'      => $montant,
                 'telephone'    => $telephone,
@@ -378,7 +382,32 @@ class LocationController extends Controller
                 'reference'    => $reference . '-' . $paiement->id,
                 'description'  => "Location bien : {$location->bien?->titre} — {$location->duree_mois} mois",
                 'callback_url' => $callbackUrl,
+                // Semoa redirige ici après que l'utilisateur valide ou annule sur le portail
+                'redirect_url' => $redirectPaye,
             ]);
+
+            // ── 2b. Déclencher le PUSH USSD directement (Mobile Money uniquement) ─
+            // Évite que l'utilisateur doive ouvrir le bill_url manuellement.
+            if (in_array($operateur, ['TMONEY', 'FLOOZ']) && !empty($telephone) && !empty($result['order_reference'])) {
+                try {
+                    $semoa->triggerDirectPay(
+                        orderReference: $result['order_reference'],
+                        operateur:      $operateur,
+                        telephone:      $telephone,
+                    );
+                    Log::info('[Paiement Semoa] PUSH USSD déclenché directement', [
+                        'order_reference' => $result['order_reference'],
+                        'telephone'       => $telephone,
+                    ]);
+                } catch (\Throwable $pushErr) {
+                    // Non bloquant : le PUSH a échoué mais la facture existe.
+                    // L'utilisateur peut toujours payer via bill_url.
+                    Log::warning('[Paiement Semoa] triggerDirectPay a échoué (non bloquant)', [
+                        'order_reference' => $result['order_reference'],
+                        'error'           => $pushErr->getMessage(),
+                    ]);
+                }
+            }
 
             // ── 3. Sauvegarder la référence Semoa ───────────────────────
             $paiement->update([
@@ -391,8 +420,8 @@ class LocationController extends Controller
             // ── Construire les instructions selon l'opérateur ─────────────
             $billUrl = $result['bill_url'] ?? null;
             $instructions = match($operateur) {
-                'TMONEY' => "Composez #145# sur votre téléphone Togo Cellulaire pour confirmer le paiement T-Money de " . number_format($montant, 0, ',', ' ') . " FCFA.",
-                'FLOOZ'  => "Composez *155# sur votre téléphone Moov Africa. Une notification PUSH va apparaître pour confirmer le paiement Flooz de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'TMONEY' => "Une notification PUSH T-Money a été envoyée sur votre téléphone (" . substr($telephone, -4) . "). Confirmez le paiement de " . number_format($montant, 0, ',', ' ') . " FCFA. Si vous ne la recevez pas, composez #145#.",
+                'FLOOZ'  => "Une notification PUSH Flooz a été envoyée sur votre téléphone (" . substr($telephone, -4) . "). Confirmez le paiement de " . number_format($montant, 0, ',', ' ') . " FCFA. Si vous ne la recevez pas, composez *155#.",
                 'CARD'   => "Vous allez être redirigé vers le portail de paiement sécurisé.",
                 default  => "Suivez les instructions de votre opérateur.",
             };
@@ -768,13 +797,13 @@ class LocationController extends Controller
             if ($template) return $template;
         }
 
-        // 2. Si le bien est un local commercial / bureau / boutique
-        if (in_array($typeBien, ['bureau_commerce', 'bureau', 'commerce', 'magasin', 'commercial'])) {
+        // 2. Si le bien est un local commercial / bureau / boutique / entrepôt
+        if (in_array($typeBien, ['bureau_commerce', 'bureau', 'commerce', 'entrepot', 'magasin', 'commercial'])) {
             $template = \App\Models\ContratTemplate::where('type', 'commercial')->where('est_actif', true)->first();
             if ($template) return $template;
         }
 
-        // 3. Si le bien est à usage d'habitation (maison, villa, appartement, studio, etc.)
+        // 3. Si le bien est à usage d'habitation (maison, villa, appartement, etc.)
         if (in_array($typeBien, ['habitation', 'maison', 'villa', 'appartement', 'chambre_studio', 'duplex'])) {
             $template = \App\Models\ContratTemplate::where('type', 'habitation')->where('est_actif', true)->first();
             if ($template) return $template;

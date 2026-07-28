@@ -198,6 +198,7 @@ class SemoaService
                 'amount'             => $amount,
                 'merchant_reference' => $params['reference'],
                 'callback_url'       => $params['callback_url'],
+                'redirect_url'       => $params['redirect_url'] ?? null,
                 'client'             => [
                     'phone'   => $params['telephone'],
                 ],
@@ -224,7 +225,58 @@ class SemoaService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ÉTAPE 4 — Vérifier le statut d'une facture
+    // ÉTAPE 4 — Déclencher le PUSH USSD directement (sans ouvrir bill_url)
+    // POST {baseUrl}/tpos/orders/{order_reference}/pay
+    // Body : { "gateway": { "reference": "<uuid>" }, "client": { "phone": "+228..." } }
+    // Semoa envoie directement la notification PUSH sur le téléphone
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function triggerDirectPay(string $orderReference, string $operateur, string $telephone): array
+    {
+        if ($this->isSimulation()) {
+            Log::info('[Semoa SIMULATION] Direct pay simulé', [
+                'order_reference' => $orderReference,
+                'operateur'       => $operateur,
+                'telephone'       => $telephone,
+            ]);
+            return ['success' => true, 'simulated' => true];
+        }
+
+        $token      = $this->authenticate();
+        $gatewayRef = $this->resolveGateway($operateur);
+
+        Log::info('[Semoa] Déclenchement PUSH direct → POST /tpos/orders/{ref}/pay', [
+            'order_reference' => $orderReference,
+            'gateway'         => $gatewayRef,
+            'telephone'       => $telephone,
+        ]);
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->asJson()
+            ->post("{$this->baseUrl}/tpos/orders/{$orderReference}/pay", [
+                'gateway' => [
+                    'reference' => $gatewayRef,
+                ],
+                'client' => [
+                    'phone' => $telephone,
+                ],
+            ]);
+
+        $this->checkResponse($response, "Déclenchement PUSH #{$orderReference}");
+
+        $data = $response->json();
+
+        Log::info('[Semoa] PUSH déclenché', [
+            'order_reference' => $orderReference,
+            'response'        => $data,
+        ]);
+
+        return $data;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ÉTAPE 5 — Vérifier le statut d'une facture
     // GET {baseUrl}/orders/{order_reference}
     // États : Pending | Paid | Error | Partial | Excess
     // ─────────────────────────────────────────────────────────────────────────
@@ -274,7 +326,17 @@ class SemoaService
      */
     private function resolveGateway(string $operateur): string
     {
-        return match(strtoupper($operateur)) {
+        $op = strtoupper($operateur);
+
+        // En mode sandbox, forcer la passerelle de test (SandboxSemoa) pour FLOOZ et TMONEY
+        // afin de pouvoir simuler le succès/échec sans erreur de passerelle réelle.
+        if (config('services.semoa.env', 'sandbox') === 'sandbox') {
+            if (in_array($op, ['TMONEY', 'FLOOZ'])) {
+                return self::GATEWAY_SANDBOX;
+            }
+        }
+
+        return match($op) {
             'TMONEY' => self::GATEWAY_TMONEY,
             'FLOOZ'  => self::GATEWAY_FLOOZ,
             'CARD'   => self::GATEWAY_CARD,

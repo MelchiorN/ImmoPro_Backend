@@ -128,10 +128,12 @@ class CategorieController extends Controller
             'actif'                  => 'sometimes|boolean',
             'ordre_affichage'        => 'sometimes|integer|min:0',
             'pourcentage_commission' => 'sometimes|numeric|min:0|max:100',
+            'frais_etude_pourcentage' => 'sometimes|numeric|min:0|max:100',
         ]);
 
         $categorie->update($request->only([
-            'nom', 'description', 'actif', 'ordre_affichage', 'pourcentage_commission',
+            'nom', 'description', 'actif', 'ordre_affichage',
+            'pourcentage_commission', 'frais_etude_pourcentage',
         ]));
 
         return response()->json([
@@ -295,15 +297,16 @@ class CategorieController extends Controller
     private function formatCategorie(Categorie $c): array
     {
         return [
-            'id'                     => $c->id,
-            'nom'                    => $c->nom,
-            'slug'                   => $c->slug,
-            'description'            => $c->description,
-            'actif'                  => $c->actif,
-            'ordre_affichage'        => $c->ordre_affichage,
-            'pourcentage_commission' => (float) $c->pourcentage_commission,
-            'nb_attributs'           => $c->attributs_count ?? 0,
-            'nb_attributs_actifs'    => $c->attributs_actifs_count ?? 0,
+            'id'                      => $c->id,
+            'nom'                     => $c->nom,
+            'slug'                    => $c->slug,
+            'description'             => $c->description,
+            'actif'                   => $c->actif,
+            'ordre_affichage'         => $c->ordre_affichage,
+            'pourcentage_commission'  => (float) $c->pourcentage_commission,
+            'frais_etude_pourcentage' => (float) ($c->frais_etude_pourcentage ?? 0),
+            'nb_attributs'            => $c->attributs_count ?? 0,
+            'nb_attributs_actifs'     => $c->attributs_actifs_count ?? 0,
         ];
     }
 

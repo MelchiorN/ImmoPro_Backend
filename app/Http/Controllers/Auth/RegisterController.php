@@ -86,10 +86,17 @@ class RegisterController extends Controller
 
         try {
             Mail::to($email)->send(new OtpMail($code, self::OTP_TTL));
+            Log::info('OTP email sent successfully.', [
+                'email' => $email,
+            ]);
         } catch (\Throwable $e) {
             Log::warning('OTP email could not be sent.', [
                 'email'     => $email,
                 'exception' => $e->getMessage(),
+                'mailer'    => config('mail.default'),
+                'host'      => config('mail.mailers.smtp.host') ?? null,
+                'port'      => config('mail.mailers.smtp.port') ?? null,
+                'encryption'=> config('mail.mailers.smtp.encryption') ?? null,
             ]);
         }
 

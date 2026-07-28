@@ -27,6 +27,9 @@ class BienListResource extends JsonResource
             'titre'            => $this->titre,
             'prix'             => (float) $this->prix,
             'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
+            'unite_prix'       => $this->unite_prix,
+            'avance_mois'      => $this->avance_mois,
+            'caution'          => $this->caution ? (float) $this->caution : null,
             'surface'          => $this->surface ? (float) $this->surface : null,
             'nb_pieces'        => $this->nb_pieces,
             'caracteristiques' => $this->caracteristiques ?? [],
@@ -34,6 +37,8 @@ class BienListResource extends JsonResource
             'latitude'         => (float) $this->latitude,
             'longitude'        => (float) $this->longitude,
             'statut'           => $this->statut,
+            'frais_etude_statut' => $this->frais_etude_statut,
+            'role_deposant'    => $this->role_deposant,
             'photo_principale' => $photo
                 ? ($photo->url ?? $photo->url_publique)
                 : null,

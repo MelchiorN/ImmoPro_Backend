@@ -7,6 +7,7 @@ use App\Models\HistoriqueConnexion;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Spatie\Activitylog\Models\Activity;
 
 class AdminUserController extends Controller
 {
@@ -16,7 +17,7 @@ class AdminUserController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     public function stats(): JsonResponse
     {
-        $base = User::where('role', 'client');
+        $base = User::whereIn('role', ['client', 'admin', 'agent']);
 
         return response()->json([
             'success' => true,
@@ -39,7 +40,7 @@ class AdminUserController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
-        $query = User::where('role', 'client')
+        $query = User::whereIn('role', ['client', 'admin', 'agent'])
             ->withCount('biens')
             ->latest();
 
@@ -78,7 +79,7 @@ class AdminUserController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     public function show(string $id): JsonResponse
     {
-        $user = User::where('role', 'client')
+        $user = User::whereIn('role', ['client', 'admin', 'agent'])
             ->withCount('biens')
             ->findOrFail($id);
 
@@ -105,18 +106,41 @@ class AdminUserController extends Controller
         ];
 
         // Derniers biens soumis (3 max)
-        $data['derniers_biens'] = $user->biens()
-            ->with('medias')
+        if ($user->role === 'client') {
+            $data['derniers_biens'] = $user->biens()
+                ->with('medias')
+                ->latest()
+                ->limit(3)
+                ->get()
+                ->map(fn ($b) => [
+                    'id'     => $b->id,
+                    'titre'  => $b->titre,
+                    'statut' => $b->statut,
+                    'photo'  => $b->medias->firstWhere('est_principale', true)?->url
+                                ?? $b->medias->first()?->url,
+                    'created_at' => $b->created_at->toIso8601String(),
+                ]);
+        } else {
+            $data['derniers_biens'] = [];
+        }
+
+        $data['activity_log'] = Activity::with(['subject'])
+            ->where('causer_type', 'App\\Models\\User')
+            ->where('causer_id', $user->id)
             ->latest()
-            ->limit(3)
+            ->limit(10)
             ->get()
-            ->map(fn ($b) => [
-                'id'     => $b->id,
-                'titre'  => $b->titre,
-                'statut' => $b->statut,
-                'photo'  => $b->medias->firstWhere('est_principale', true)?->url
-                            ?? $b->medias->first()?->url,
-                'created_at' => $b->created_at->toIso8601String(),
+            ->map(fn ($activity) => [
+                'id' => $activity->id,
+                'description' => $activity->description,
+                'log_name' => $activity->log_name,
+                'subject_type' => $activity->subject_type ? class_basename($activity->subject_type) : null,
+                'subject_label' => $activity->subject ? (
+                    $activity->subject->titre
+                    ?? $activity->subject->email
+                    ?? $activity->subject->first_name . ' ' . ($activity->subject->last_name ?? '')
+                ) : null,
+                'created_at' => $activity->created_at?->toIso8601String(),
             ]);
 
         return response()->json([
@@ -131,7 +155,7 @@ class AdminUserController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     public function updateStatus(Request $request, string $id): JsonResponse
     {
-        $user = User::where('role', 'client')->findOrFail($id);
+        $user = User::whereIn('role', ['client', 'admin', 'agent'])->findOrFail($id);
 
         $request->validate([
             'status' => 'required|in:active,suspended,blocked',
@@ -165,8 +189,8 @@ class AdminUserController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     public function historique(Request $request, string $id): JsonResponse
     {
-        // Vérifier que l'utilisateur existe et est bien un client
-        User::where('role', 'client')->findOrFail($id);
+        // Vérifier que l'utilisateur existe et est bien un compte administré
+        User::whereIn('role', ['client', 'admin', 'agent'])->findOrFail($id);
 
         $historique = HistoriqueConnexion::where('user_id', $id)
             ->latest('connected_at')
@@ -206,6 +230,7 @@ class AdminUserController extends Controller
             'city'            => $u->city,
             'profile_picture' => $u->profile_picture,
             'status'          => $u->status,
+            'role'            => $u->role,
             'created_at'      => $u->created_at?->toIso8601String(),
             'updated_at'      => $u->updated_at?->toIso8601String(),
             'biens_count'     => $u->biens_count ?? 0,

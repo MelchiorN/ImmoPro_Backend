@@ -7,6 +7,8 @@ use App\Models\Location;
 use App\Models\Recu;
 use App\Models\Commission;
 use App\Models\Reversement;
+use App\Models\UserAbonnement;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +50,7 @@ class SemoaWebhookController extends Controller
             return response()->json(['success' => false, 'message' => 'paiement_id manquant.'], 400);
         }
 
-        $paiement = Paiement::with(['location.bien', 'location.locataire', 'location.proprietaire'])
+        $paiement = Paiement::with(['location.bien', 'location.locataire', 'location.proprietaire', 'payable'])
             ->find($paiementId);
 
         if (! $paiement) {
@@ -65,7 +67,12 @@ class SemoaWebhookController extends Controller
 
         // ── Paiement Réussi (PAID) ─────────────────────────────────────
         if ($status === 'PAID') {
-            return $this->confirmerPaiement($paiement, $payload);
+            // Router vers le bon handler selon le type de paiement
+            return match($paiement->type_paiement ?? 'location') {
+                'abonnement'  => $this->confirmerAbonnement($paiement, $payload),
+                'frais_etude' => $this->confirmerFraisEtude($paiement, $payload),
+                default       => $this->confirmerPaiement($paiement, $payload),
+            };
         }
 
         // ── Paiement Échoué ou Annulé ──────────────────────────────────
@@ -183,6 +190,169 @@ class SemoaWebhookController extends Controller
                 'success' => false,
                 'message' => 'Erreur lors de la confirmation du paiement.',
             ], 500);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Confirme un paiement d'abonnement → active le UserAbonnement + génère reçu
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function confirmerAbonnement(Paiement $paiement, array $payload): JsonResponse
+    {
+        /** @var UserAbonnement $userAbonnement */
+        $userAbonnement = $paiement->payable;
+
+        if (! $userAbonnement) {
+            return response()->json(['success' => false, 'message' => 'Abonnement introuvable.'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            // 1. Confirmer le paiement
+            $paiement->update([
+                'statut'                => 'confirme',
+                'reference_transaction' => $payload['order_reference'] ?? $paiement->reference_transaction,
+                'semoa_bill_id'         => $payload['order_reference'] ?? $paiement->semoa_bill_id,
+            ]);
+
+            // 2. Activer l'abonnement
+            $userAbonnement->update(['statut' => 'actif']);
+
+            // 3. Générer le reçu
+            $recu = Recu::create([
+                'paiement_id'   => $paiement->id,
+                'numero_recu'   => Recu::genererNumero(),
+                'date_emission' => now(),
+            ]);
+
+            // 4. Notifier l'utilisateur
+            try {
+                $user = $userAbonnement->user;
+                app(NotificationService::class)->notify(
+                    $user,
+                    'abonnement_active',
+                    'Abonnement activé !',
+                    "Votre abonnement \"{$userAbonnement->plan->nom}\" est activé. Vous avez {$userAbonnement->nb_publications_restantes} publication(s) disponible(s).",
+                    ['abonnement_id' => $userAbonnement->id]
+                );
+            } catch (\Throwable $e) {
+                Log::warning('[Semoa Webhook] Notification abonnement échouée : ' . $e->getMessage());
+            }
+
+            DB::commit();
+
+            Log::info('[Semoa Webhook] Abonnement activé', [
+                'paiement_id'     => $paiement->id,
+                'abonnement_id'   => $userAbonnement->id,
+                'recu'            => $recu->numero_recu,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Abonnement activé.',
+                'data'    => ['recu' => $recu->numero_recu, 'abonnement_id' => $userAbonnement->id],
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[Semoa Webhook] Erreur activation abonnement', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Erreur activation abonnement.'], 500);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Confirme un paiement de frais d'étude → passe le bien en_attente
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function confirmerFraisEtude(Paiement $paiement, array $payload): JsonResponse
+    {
+        /** @var \App\Models\Bien $bien */
+        $bien = $paiement->payable;
+
+        if (! $bien instanceof \App\Models\Bien) {
+            return response()->json(['success' => false, 'message' => 'Bien introuvable.'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            // 1. Confirmer le paiement
+            $paiement->update([
+                'statut'                => 'confirme',
+                'reference_transaction' => $payload['order_reference'] ?? $paiement->reference_transaction,
+                'semoa_bill_id'         => $payload['order_reference'] ?? $paiement->semoa_bill_id,
+            ]);
+
+            // 2. Activer le bien (brouillon → en_attente)
+            $bien->update([
+                'statut'             => 'en_attente',
+                'frais_etude_statut' => 'paye',
+            ]);
+
+            // 3. Décrémenter le quota du propriétaire
+            $user       = $bien->proprietaire;
+            $abonnement = $user?->abonnementActif();
+            if ($abonnement) {
+                $abonnement->consommerUnePublication();
+            } elseif ($user && $user->essais_gratuits_restants > 0) {
+                $user->decrement('essais_gratuits_restants');
+            }
+
+            // 4. Générer le reçu
+            $recu = Recu::create([
+                'paiement_id'   => $paiement->id,
+                'numero_recu'   => Recu::genererNumero(),
+                'date_emission' => now(),
+            ]);
+
+            // 5. Notifier admins/agents
+            try {
+                $staffs = \App\Models\User::whereIn('role', ['admin', 'agent'])->get();
+                foreach ($staffs as $staff) {
+                    app(NotificationService::class)->notify(
+                        $staff,
+                        'nouveau_bien',
+                        'Nouveau bien à vérifier',
+                        "Le dossier \"{$bien->titre}\" est en attente de vérification après paiement des frais d'étude.",
+                        ['bien_id' => (string) $bien->id]
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[Semoa Webhook] Notification frais_etude échouée: ' . $e->getMessage());
+            }
+
+            // 6. Notifier le client
+            try {
+                if ($user) {
+                    app(NotificationService::class)->notify(
+                        $user,
+                        'frais_etude_confirme',
+                        'Frais d\'étude confirmés',
+                        "Vos frais d'étude pour \"{$bien->titre}\" ont été confirmés. Votre dossier est en cours d'analyse.",
+                        ['bien_id' => (string) $bien->id, 'recu_id' => (string) $recu->id]
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[Semoa Webhook] Notif client frais_etude échouée: ' . $e->getMessage());
+            }
+
+            DB::commit();
+
+            Log::info('[Semoa Webhook] Frais étude confirmés', [
+                'paiement_id' => $paiement->id,
+                'bien_id'     => $bien->id,
+                'recu'        => $recu->numero_recu,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Frais d\'étude confirmés. Bien en attente de vérification.',
+                'data'    => ['recu' => $recu->numero_recu, 'bien_id' => $bien->id],
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[Semoa Webhook] Erreur confirmation frais_etude', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Erreur confirmation frais d\'étude.'], 500);
         }
     }
 

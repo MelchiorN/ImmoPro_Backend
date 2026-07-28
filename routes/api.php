@@ -3,6 +3,8 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AdminNotificationController;
 use App\Http\Controllers\Admin\CategorieController;
+use App\Http\Controllers\Admin\ConfigPublicationController;
+use App\Http\Controllers\Admin\PlanAbonnementController;
 use App\Http\Controllers\Annonce\CategoriePublicController;
 use App\Http\Controllers\Admin\AdminActivityController;
 use App\Http\Controllers\Admin\AdminRapportController;
@@ -20,6 +22,7 @@ use App\Http\Controllers\Admin\BienAdminController;
 use App\Http\Controllers\Agent\AgentBienController;
 use App\Http\Controllers\Bien\BienController;
 use App\Http\Controllers\Bien\BienPublicController;
+use App\Http\Controllers\Client\AbonnementController;
 use App\Http\Controllers\Client\ClientNotificationController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\LocationController;
@@ -86,8 +89,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Profil & déconnexion — Admin + Agent ──────────────────────────────────
     Route::middleware('role:admin,agent')->group(function () {
-        Route::get ('/me',     [AuthController::class, 'me']);
-        Route::post('/logout', [AuthController::class, 'logout']);
+        Route::get ('/me',                  [AuthController::class, 'me']);
+        Route::post('/logout',             [AuthController::class, 'logout']);
+        Route::put ('/profile',            [AuthController::class, 'updateProfile']);
+        Route::post('/profile/photo',      [AuthController::class, 'updateProfilePhoto']);
     });
 
     // ── Device token (push notifications) — tous rôles ────────────────────────
@@ -145,6 +150,29 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('favoris')->group(function () {
             Route::get('/', [\App\Http\Controllers\Api\FavoriController::class, 'index']);
             Route::post('/{bien}/toggle', [\App\Http\Controllers\Api\FavoriController::class, 'toggle']);
+        });
+
+        // ── Abonnements ───────────────────────────────────────────────────────
+        Route::prefix('client/abonnements')->group(function () {
+            Route::get ('/plans',      [AbonnementController::class, 'plans']);
+            Route::get ('/quota',      [AbonnementController::class, 'quota']);
+            Route::get ('/historique', [AbonnementController::class, 'historique']);
+            Route::post('/acheter',    [AbonnementController::class, 'acheter']);
+            Route::post('/confirmer',  [AbonnementController::class, 'confirmer']);
+        });
+
+        // ── Frais d'étude (paiement avant soumission d'un bien) ───────────────
+        Route::prefix('client/frais-etude')->group(function () {
+            Route::get ('/quota',      [\App\Http\Controllers\Client\FraisEtudeController::class, 'quotaEtFrais']);
+            Route::get ('/historique', [\App\Http\Controllers\Client\FraisEtudeController::class, 'historique']);
+            Route::post('/initier',    [\App\Http\Controllers\Client\FraisEtudeController::class, 'initier']);
+            Route::post('/confirmer',  [\App\Http\Controllers\Client\FraisEtudeController::class, 'confirmer']);
+        });
+
+        // ── Historique paiements client (abonnements + frais d'étude) ─────────
+        Route::prefix('client/paiements')->group(function () {
+            Route::get('/',           [\App\Http\Controllers\Client\ClientPaiementController::class, 'index']);
+            Route::get('/{id}/recu',  [\App\Http\Controllers\Client\ClientPaiementController::class, 'recu']);
         });
 
         // ── Historique paiements & Statistiques client ─────────────────────
@@ -280,6 +308,37 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get  ('/{id}',           [AdminUserController::class, 'show']);
         Route::patch('/{id}/status',    [AdminUserController::class, 'updateStatus']);
         Route::get  ('/{id}/historique',[AdminUserController::class, 'historique']);
+        // Surcharge du quota gratuit d'un utilisateur spécifique
+        Route::patch('/{id}/essais-gratuits', [ConfigPublicationController::class, 'setEssaisGratuits']);
+    });
+
+    // ── Plans d'abonnement (admin) ─────────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/plans-abonnement')->group(function () {
+        Route::get   ('/',          [PlanAbonnementController::class, 'index']);
+        Route::post  ('/',          [PlanAbonnementController::class, 'store']);
+        Route::get   ('/{id}',      [PlanAbonnementController::class, 'show']);
+        Route::put   ('/{id}',      [PlanAbonnementController::class, 'update']);
+        Route::patch ('/{id}/toggle',[PlanAbonnementController::class, 'toggle']);
+        Route::delete('/{id}',      [PlanAbonnementController::class, 'destroy']);
+    });
+
+    // ── Frais d'étude (admin) ──────────────────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/frais-etude')->group(function () {
+        Route::get('/stats', [\App\Http\Controllers\Admin\AdminFraisEtudeController::class, 'stats']);
+        Route::get('/',      [\App\Http\Controllers\Admin\AdminFraisEtudeController::class, 'index']);
+    });
+
+    // ── Transactions & Paiements (admin) ───────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/transactions')->group(function () {
+        Route::get('/stats',           [\App\Http\Controllers\Admin\AdminTransactionController::class, 'stats']);
+        Route::get('/',                [\App\Http\Controllers\Admin\AdminTransactionController::class, 'index']);
+        Route::get('/{id}/recu',       [\App\Http\Controllers\Admin\AdminTransactionController::class, 'downloadRecu']);
+    });
+
+    // ── Configuration publication (admin) ──────────────────────────────────────
+    Route::middleware('role:admin')->prefix('admin/config-publication')->group(function () {
+        Route::get('/',  [ConfigPublicationController::class, 'show']);
+        Route::put('/',  [ConfigPublicationController::class, 'update']);
     });
 
     Route::middleware('role:agent')->prefix('agent/visites')->group(function () {

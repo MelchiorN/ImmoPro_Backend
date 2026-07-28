@@ -20,13 +20,15 @@ class Categorie extends Model
         'actif',
         'ordre_affichage',
         'pourcentage_commission',
+        'frais_etude_pourcentage',
     ];
 
     protected function casts(): array
     {
         return [
-            'actif'                  => 'boolean',
-            'pourcentage_commission' => 'decimal:2',
+            'actif'                   => 'boolean',
+            'pourcentage_commission'  => 'decimal:2',
+            'frais_etude_pourcentage' => 'decimal:2',
         ];
     }
 
@@ -38,6 +40,21 @@ class Categorie extends Model
     {
         $commission = (float) $this->pourcentage_commission;
         return round($prixProprietaire + ($prixProprietaire * $commission / 100), 2);
+    }
+
+    /**
+     * Calcule les frais d'étude de dossier pour un bien de cette catégorie.
+     * frais = prix × frais_etude_pourcentage / 100
+     *
+     * Retourne 0 si les frais d'étude sont désactivés globalement.
+     */
+    public function calculerFraisEtude(float $prixBien): float
+    {
+        $pourcentage = (float) $this->frais_etude_pourcentage;
+        if ($pourcentage <= 0) {
+            return 0.0;
+        }
+        return round($prixBien * $pourcentage / 100, 2);
     }
 
     // ─── Relations ────────────────────────────────────────────────────────────
