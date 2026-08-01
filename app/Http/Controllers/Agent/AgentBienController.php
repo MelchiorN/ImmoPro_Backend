@@ -7,9 +7,16 @@ use App\Http\Resources\BienListResource;
 use App\Http\Resources\BienResource;
 use App\Models\Bien;
 use App\Models\DocumentBien;
+use App\Models\User;
+use App\Notifications\DossierAssigneAdminNotification;
+use App\Notifications\DossierPrisEnChargeNotification;
+use App\Services\EmailTemplateService;
+use App\Services\NotificationService;
+use App\Services\WorkflowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class AgentBienController extends Controller
@@ -238,10 +245,61 @@ class AgentBienController extends Controller
             ], 409); // Conflict
         }
 
+        // ── Enregistrer claimed_at ────────────────────────────────────────────
+        $updated->update(['claimed_at' => now()]);
+
+        // ── Notifier le propriétaire du bien ──────────────────────────────────
+        try {
+            $proprietaire = $updated->proprietaire ?? User::find($updated->user_id);
+            $agent       = clone $request->user();
+
+            if ($proprietaire) {
+                $proprietaire->notify(new DossierPrisEnChargeNotification($updated, $agent));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[AgentBienController] Erreur notification propriétaire claim: ' . $e->getMessage());
+        }
+
+        // ── Notifier les admins ───────────────────────────────────────────────
+        try {
+            $agent    = clone $request->user();
+            $admins   = User::where('role', 'admin')->get();
+
+            foreach ($admins as $admin) {
+                $admin->notify(new DossierAssigneAdminNotification($updated, $agent));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[AgentBienController] Erreur notification admin claim: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Bien pris en charge. Vous pouvez maintenant rédiger votre rapport.',
+            'message' => 'Dossier pris en charge avec succès.',
             'data'    => new BienResource($updated->fresh(['medias', 'documents', 'proprietaire'])),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PATCH /api/agent/biens/{id}
+    // L'agent modifie les informations textuelles du bien
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function updateBien(\App\Http\Requests\AgentUpdateBienRequest $request, string $id): JsonResponse
+    {
+        $agentId = $request->user()->id;
+
+        $bien = Bien::where('id', $id)
+                    ->where('agent_id', $agentId)
+                    ->whereIn('statut', ['en_cours', 'en_attente'])
+                    ->firstOrFail();
+
+        $bien->update($request->validated());
+        $bien->update(['last_activity_at' => now()]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Les informations du bien ont été mises à jour.',
+            'data'    => new BienResource($bien),
         ]);
     }
 
@@ -327,5 +385,162 @@ class AgentBienController extends Controller
             $document->nom_original,
             ['Content-Type' => $document->mime_type]
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/agent/biens/{id}/workflow
+    // Suivi de progression — uniquement les biens assignés à l'agent
+    // ou non encore assignés (onglet "Non assignés").
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function workflow(Request $request, string $id): JsonResponse
+    {
+        $agentId = $request->user()->id;
+
+        $bien = Bien::with(['agent', 'rapport'])
+            ->where(function ($q) use ($agentId) {
+                $q->where('agent_id', $agentId)
+                  ->orWhereNull('agent_id');
+            })
+            ->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data'    => app(WorkflowService::class)->calculer($bien),
+        ]);
+    }
+
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/agent/biens/{id}/medias
+    // Ajouter des photos/vidéos à un bien
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function addMedia(Request $request, string $id): JsonResponse
+    {
+        $bien = Bien::where('id', $id)
+            ->where('agent_id', $request->user()->id)
+            ->whereIn('statut', ['en_cours', 'en_attente'])
+            ->firstOrFail();
+
+        $request->validate([
+            'medias'   => 'required|array|min:1',
+            'medias.*' => 'required|file|mimes:jpg,jpeg,png,webp,mp4,mov,avi|max:51200',
+        ]);
+
+        $added = [];
+        foreach ($request->file('medias') as $fichier) {
+            $mime    = $fichier->getMimeType();
+            $isVideo = str_starts_with($mime, 'video/');
+            $dossier = "biens/{$bien->id}/medias";
+            $chemin  = $fichier->store($dossier, 'public');
+            $ordre   = \App\Models\MediaBien::where('bien_id', $bien->id)->max('ordre') + 1;
+
+            $media = \App\Models\MediaBien::create([
+                'bien_id'        => $bien->id,
+                'type'           => $isVideo ? 'video' : 'photo',
+                'chemin'         => $chemin,
+                'est_principale' => false,
+                'ordre'          => $ordre,
+                'taille'         => $fichier->getSize(),
+                'mime_type'      => $mime,
+            ]);
+            $added[] = ['id' => $media->id, 'url' => $media->url, 'type' => $media->type];
+        }
+
+        return response()->json(['success' => true, 'message' => count($added) . ' média(s) ajouté(s).', 'data' => $added], 201);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DELETE /api/agent/biens/{id}/medias/{mediaId}
+    // Supprimer un média d'un bien
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function deleteMedia(Request $request, string $id, string $mediaId): JsonResponse
+    {
+        $bien = Bien::where('id', $id)->where('agent_id', $request->user()->id)->firstOrFail();
+
+        $media = \App\Models\MediaBien::where('id', $mediaId)->where('bien_id', $bien->id)->firstOrFail();
+
+        Storage::disk('public')->delete($media->chemin);
+        $media->delete();
+
+        return response()->json(['success' => true, 'message' => 'Média supprimé.']);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PATCH /api/agent/biens/{id}/medias/{mediaId}
+    // Mettre à jour un média (ex : définir comme principale)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function updateMedia(Request $request, string $id, string $mediaId): JsonResponse
+    {
+        $bien = Bien::where('id', $id)->where('agent_id', $request->user()->id)->firstOrFail();
+
+        $media = \App\Models\MediaBien::where('id', $mediaId)->where('bien_id', $bien->id)->firstOrFail();
+
+        if ($request->boolean('est_principale')) {
+            // Retirer est_principale de tous les médias du bien
+            \App\Models\MediaBien::where('bien_id', $bien->id)->update(['est_principale' => false]);
+            $media->update(['est_principale' => true]);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Média mis à jour.', 'data' => $media->fresh()]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/agent/biens/{id}/documents
+    // Ajouter un document à un bien
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function addDocument(Request $request, string $id): JsonResponse
+    {
+        $bien = Bien::where('id', $id)
+            ->where('agent_id', $request->user()->id)
+            ->whereIn('statut', ['en_cours', 'en_attente'])
+            ->firstOrFail();
+
+        $request->validate([
+            'document'  => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:20480',
+            'type'      => 'nullable|string|max:100',
+        ]);
+
+        $fichier = $request->file('document');
+        $dossier = "biens/{$bien->id}/documents";
+        $chemin  = $fichier->store($dossier, 'local');
+
+        $doc = DocumentBien::create([
+            'bien_id'      => $bien->id,
+            'type'         => $request->input('type', 'autre'),
+            'chemin'       => $chemin,
+            'nom_original' => $fichier->getClientOriginalName(),
+            'taille'       => $fichier->getSize(),
+            'mime_type'    => $fichier->getMimeType(),
+            'statut'       => 'en_attente',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Document ajouté.',
+            'data'    => ['id' => $doc->id, 'type' => $doc->type, 'nom' => $doc->nom_original],
+        ], 201);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DELETE /api/agent/biens/{id}/documents/{docId}
+    // Supprimer un document d'un bien
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function deleteDocument(Request $request, string $id, string $docId): JsonResponse
+    {
+        $bien = Bien::where('id', $id)->where('agent_id', $request->user()->id)->firstOrFail();
+
+        $doc = DocumentBien::where('id', $docId)->where('bien_id', $bien->id)->firstOrFail();
+
+        Storage::disk('local')->delete($doc->chemin);
+        $doc->delete();
+
+        return response()->json(['success' => true, 'message' => 'Document supprimé.']);
     }
 }

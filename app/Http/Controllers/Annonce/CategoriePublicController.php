@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Annonce;
 
 use App\Http\Controllers\Controller;
 use App\Models\Categorie;
+use App\Models\TypeLogement;
 use Illuminate\Http\JsonResponse;
 
 class CategoriePublicController extends Controller
@@ -33,9 +34,6 @@ class CategoriePublicController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/categories/{slug}/schema
     // Retourne les attribut_definitions actifs d'une catégorie.
-    // Utilisé par le mobile Flutter et le frontend Nuxt pour générer
-    // dynamiquement le formulaire de publication sans code spécifique
-    // à chaque type de bien.
     // ─────────────────────────────────────────────────────────────────────────
 
     public function schema(string $slug): JsonResponse
@@ -66,6 +64,34 @@ class CategoriePublicController extends Controller
                 'frais_etude_pourcentage' => (float) ($categorie->frais_etude_pourcentage ?? 0),
                 'attributs'               => $attributs,
             ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/categories/{slug}/types-logement
+    // Retourne les types de logement actifs et ordonnés pour une catégorie.
+    // Principalement utilisé pour "appartement" (Studio/F1, F2, F3, F4+…).
+    // Configurable depuis l'administration sans toucher au code.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function typesLogement(string $slug): JsonResponse
+    {
+        $categorie = Categorie::where('slug', $slug)
+            ->where('actif', true)
+            ->firstOrFail();
+
+        $types = $categorie->typesLogement()
+            ->get()
+            ->map(fn ($t) => [
+                'slug'        => $t->slug,
+                'nom'         => $t->nom,
+                'description' => $t->description,
+                'est_socle'   => $t->est_socle,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $types,
         ]);
     }
 }

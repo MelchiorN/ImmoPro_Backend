@@ -13,6 +13,8 @@ use App\Models\ConfigPublication;
 use App\Models\DocumentBien;
 use App\Models\MediaBien;
 use App\Models\Paiement;
+use App\Models\User;
+use App\Services\EmailTemplateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -131,6 +133,7 @@ class BienController extends Controller
                 'latitude'              => $request->input('latitude'),
                 'longitude'             => $request->input('longitude'),
                 'statut'                => 'en_attente',
+                'publication_auto'      => $request->boolean('publication_auto', true),
                 // Déposant
                 'role_deposant'         => $request->input('role_deposant', 'proprietaire'),
                 'proprietaire_nom'      => $request->input('proprietaire_nom'),
@@ -143,6 +146,8 @@ class BienController extends Controller
                 // Frais d'étude
                 'frais_etude_statut'         => $fraisStatut,
                 'frais_etude_paiement_id'    => $fraisPaiementId,
+                // Workflow : horodatage de soumission
+                'submitted_at'               => now(),
             ]);
 
             // ── Médias ────────────────────────────────────────────────────────
@@ -157,7 +162,6 @@ class BienController extends Controller
                         'bien_id'        => $bien->id,
                         'type'           => $isVideo ? 'video' : 'photo',
                         'chemin'         => $chemin,
-                        'url'            => Storage::disk('public')->url($chemin),
                         'est_principale' => $index === 0,
                         'ordre'          => $index,
                         'taille'         => $fichier->getSize(),
@@ -166,26 +170,31 @@ class BienController extends Controller
                 }
             }
 
-            // ── Documents ─────────────────────────────────────────────────────
-            $mappingDocuments = [
-                'justificatif_propriete'    => 'justificatif_propriete',
-                'piece_identite'            => 'piece_identite',
-                'piece_identite_deposant'   => 'piece_identite_deposant',
-                'mandat_gestion'            => 'mandat_gestion',
-                'procuration'               => 'procuration',
-                'acte_succession'           => 'acte_succession',
-                'autorisation_ecrite'       => 'autorisation_ecrite',
-            ];
+            // ── Documents — dynamiques depuis la config ───────────────────────
+            $docsConfig = \App\Models\ConfigDocParRole::with('typeDocument')
+                ->whereHas('role', fn ($q) => $q->where('slug', $request->input('role_deposant', 'proprietaire')))
+                ->get();
 
-            foreach ($mappingDocuments as $inputKey => $typeDoc) {
-                if ($request->hasFile("documents.{$inputKey}")) {
-                    $fichier = $request->file("documents.{$inputKey}");
+            // Collecte tous les slugs valides (rôle + documents optionnels de la catégorie)
+            $slugsValides = $docsConfig
+                ->filter(fn ($dr) => $dr->typeDocument && $dr->typeDocument->actif)
+                ->pluck('typeDocument.slug')
+                ->toArray();
+
+            // Ajouter les documents optionnels de la catégorie
+            if ($categorie && ! empty($categorie->documents_optionnels)) {
+                $slugsValides = array_unique(array_merge($slugsValides, $categorie->documents_optionnels));
+            }
+
+            foreach ($slugsValides as $slug) {
+                if ($request->hasFile("documents.{$slug}")) {
+                    $fichier = $request->file("documents.{$slug}");
                     $dossier = "biens/{$bien->id}/documents";
                     $chemin  = $fichier->store($dossier, 'local');
 
                     DocumentBien::create([
                         'bien_id'      => $bien->id,
-                        'type'         => $typeDoc,
+                        'type'         => $slug,
                         'chemin'       => $chemin,
                         'nom_original' => $fichier->getClientOriginalName(),
                         'taille'       => $fichier->getSize(),
@@ -205,17 +214,78 @@ class BienController extends Controller
 
             DB::commit();
 
-            // ── Notifier admins/agents ────────────────────────────────────────
+            // ── Notifier le client qui soumet ─────────────────────────────────
             try {
-                $notif    = app(\App\Services\NotificationService::class);
-                $staffs   = \App\Models\User::whereIn('role', ['admin', 'agent'])->get();
-                foreach ($staffs as $staff) {
+                $notif = app(\App\Services\NotificationService::class);
+
+                $emailBody = \App\Services\EmailTemplateService::generic(
+                    titre: '📋 Dossier soumis avec succès',
+                    intro: "Votre dossier immobilier a bien été reçu et est maintenant en cours de vérification par notre équipe. Vous serez notifié dès qu'une décision sera prise.",
+                    rows: [
+                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $bien->titre],
+                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $bien->adresse],
+                        ['icon' => '🔄', 'label' => 'Transaction', 'value' => ucfirst($bien->type_transaction)],
+                        ['icon' => '⏳', 'label' => 'Statut',      'value' => 'En attente de vérification'],
+                    ],
+                    outro: 'Délai de vérification estimé : 24 à 48 heures. Notre équipe examine chaque dossier avec soin.'
+                );
+
+                $notif->notify(
+                    $user,
+                    'bien_soumis',
+                    'Dossier soumis avec succès',
+                    "Votre bien \"{$bien->titre}\" a été soumis et est en attente de vérification (24-48h).",
+                    ['bien_id' => (string) $bien->id],
+                    'Confirmation de soumission — ImmoPro',
+                    $emailBody,
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Erreur notification client bien soumis: ' . $e->getMessage());
+            }
+
+            // ── Notifier admins/agents ────────────────────────────────────────
+            // On passe par NotificationService (table custom + email direct synchrone)
+            // et non $user->notify() Laravel qui écrit dans la mauvaise table et
+            // dépend d'un queue worker pour les emails.
+            try {
+                $nomBien    = $bien->titre;
+                $adresse    = $bien->adresse ?? '—';
+                $typeBienLbl = ucfirst($bien->type_bien ?? '—');
+                $transaction = ucfirst($bien->type_transaction ?? '—');
+
+                $agents = User::where('role', 'agent')->get();
+                foreach ($agents as $agent) {
+                    $emailHtmlAgent = \App\Services\EmailTemplateService::generic(
+                        titre: '📂 Nouveau dossier à traiter',
+                        intro: "Un nouveau bien a été soumis et attend votre vérification. Connectez-vous pour le prendre en charge.",
+                        rows: [
+                            ['icon' => '🏠', 'label' => 'Bien',          'value' => $nomBien],
+                            ['icon' => '📍', 'label' => 'Adresse',       'value' => $adresse],
+                            ['icon' => '🏗️', 'label' => 'Type',          'value' => $typeBienLbl],
+                            ['icon' => '🔄', 'label' => 'Transaction',   'value' => $transaction],
+                        ],
+                        outro: 'Connectez-vous à la plateforme pour prendre ce dossier en charge.'
+                    );
+
                     $notif->notify(
-                        $staff,
-                        'nouveau_bien',
-                        'Nouveau bien à vérifier',
-                        "Un nouveau bien ({$bien->titre}) a été soumis et est en attente de vérification.",
-                        ['bien_id' => (string) $bien->id]
+                        $agent,
+                        'nouveau_dossier',
+                        '📂 Nouveau dossier à traiter',
+                        "Nouveau bien soumis : « {$nomBien} » ({$typeBienLbl}) à {$adresse}. Prenez-le en charge !",
+                        ['bien_id' => (string) $bien->id],
+                        "ImmoPro — Nouveau dossier : {$nomBien}",
+                        $emailHtmlAgent,
+                    );
+                }
+
+                $admins = User::where('role', 'admin')->get();
+                foreach ($admins as $admin) {
+                    $notif->notify(
+                        $admin,
+                        'nouveau_dossier_admin',
+                        '🏠 Nouveau bien soumis',
+                        "Un nouveau bien « {$nomBien} » a été soumis sur la plateforme.",
+                        ['bien_id' => (string) $bien->id],
                     );
                 }
             } catch (\Throwable $e) {
@@ -349,7 +419,6 @@ class BienController extends Controller
                     'bien_id'        => $bien->id,
                     'type'           => 'photo',
                     'chemin'         => $chemin,
-                    'url'            => Storage::disk('public')->url($chemin),
                     'est_principale' => $index === 0,
                     'ordre'          => $index,
                     'taille'         => $fichier->getSize(),

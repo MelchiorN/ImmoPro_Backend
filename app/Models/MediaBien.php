@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -41,9 +42,24 @@ class MediaBien extends Model
         return $this->belongsTo(Bien::class);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── Accessors ────────────────────────────────────────────────────────────
 
-    /** Retourne l'URL publique du média. */
+    /**
+     * Recalcule l'URL publique dynamiquement depuis APP_URL.
+     * Ignore la valeur stockée en base — toujours cohérent avec l'environnement courant.
+     */
+    protected function url(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->chemin
+                ? Storage::disk('public')->url($this->chemin)
+                : null,
+        );
+    }
+
+    /**
+     * Alias rétrocompatible — même résultat que ->url.
+     */
     public function getUrlPubliqueAttribute(): string
     {
         return Storage::disk('public')->url($this->chemin);

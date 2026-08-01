@@ -99,150 +99,38 @@ class AdminRapportController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /api/admin/rapports/{id}/decision
-    // L'admin décide : publier ou rejeter le bien après lecture du rapport
-    // body : { "decision": "publier"|"rejeter", "note": "..." }
+    // GET /api/admin/biens/{id}/rapport
+    // Lecture seule du rapport d'un bien — l'admin ne décide plus.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function showByBien(string $bienId): JsonResponse
+    {
+        $rapport = Rapport::with(['bien.proprietaire', 'bien.medias', 'bien.documents', 'agent'])
+            ->where('bien_id', $bienId)
+            ->first();
+
+        if (! $rapport) {
+            return response()->json(['success' => true, 'data' => null]);
+        }
+
+        return response()->json(['success' => true, 'data' => $this->formatFull($rapport)]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/admin/rapports/{id}/decision  — DÉSACTIVÉ
+    // La décision appartient désormais à l'agent (POST /agent/biens/{id}/rapport/decision).
     // ─────────────────────────────────────────────────────────────────────────
 
     public function decision(Request $request, string $id): JsonResponse
     {
-        $request->validate([
-            'decision' => 'required|in:publier,rejeter',
-            'note'     => 'nullable|string|max:1000',
-        ]);
-
-        $rapport = Rapport::with(['bien', 'agent'])->findOrFail($id);
-
-        if ($rapport->statut !== Rapport::STATUT_SOUMIS) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Ce rapport a déjà été traité.',
-            ], 422);
-        }
-
-        $bien     = $rapport->bien;
-        $decision = $request->input('decision');
-        $note     = $request->input('note');
-        $admin    = $request->user();
-        $nomAdmin = trim("{$admin->first_name} {$admin->last_name}");
-
-        if ($decision === 'publier') {
-            // ── Approuver ─────────────────────────────────────────────────────
-            // Le bien passe à "valide" (approuvé par l'admin).
-            // Le propriétaire devra ensuite décider de le publier lui-même.
-            $rapport->update([
-                'statut'      => Rapport::STATUT_VALIDE,
-                'note_finale' => null,
-            ]);
-
-            $bien->update([
-                'statut'     => 'valide',
-                'note_admin' => null,
-            ]);
-
-            $messageAgent = "Félicitations ! Votre rapport pour « {$bien->titre} » a été approuvé. Le propriétaire peut désormais publier son bien sur la plateforme.";
-            $typeNotif    = 'rapport_approuve';
-            $titreNotif   = 'Rapport approuvé ✅';
-
-        } else {
-            // ── Rejeter ───────────────────────────────────────────────────────
-            $rapport->update([
-                'statut'      => Rapport::STATUT_REJETE,
-                'note_finale' => $note ?? 'Le rapport nécessite des corrections.',
-            ]);
-
-            // Le bien repasse en en_cours pour correction
-            $bien->update([
-                'statut'     => 'en_cours',
-                'note_admin' => $note,
-            ]);
-
-            $messageAgent = "Votre rapport pour « {$bien->titre} » a été rejeté. Motif : " . ($note ?? 'Aucun motif précisé') . ". Veuillez le corriger et le soumettre à nouveau.";
-            $typeNotif    = 'rapport_rejete';
-            $titreNotif   = 'Rapport rejeté — corrections requises';
-        }
-
-        // ── Notification in-app + push + email à l'agent ─────────────────────
-        if ($rapport->agent) {
-            $emailHtml = EmailTemplateService::generic(
-                titre:   $titreNotif,
-                intro:   $messageAgent,
-                rows:    [
-                    ['icon' => '🏠', 'label' => 'Bien',     'value' => $bien->titre],
-                    ['icon' => '📋', 'label' => 'Décision', 'value' => $decision === 'publier' ? 'Approuvé ✅' : 'Rejeté ❌'],
-                ],
-                noteBox: ($decision === 'rejeter' && $note) ? $note : null,
-            );
-
-            $this->notifService->notify(
-                user:         $rapport->agent,
-                type:         $typeNotif,
-                titre:        $titreNotif,
-                message:      $messageAgent,
-                data:         [
-                    'rapport_id' => $rapport->id,
-                    'bien_id'    => $bien->id,
-                    'bien_titre' => $bien->titre,
-                    'decision'   => $decision,
-                    'note'       => $note,
-                ],
-                emailSubject: "ImmoPro — {$titreNotif} : {$bien->titre}",
-                emailBody:    $emailHtml,
-            );
-        }
-
-        // ── Notifier le propriétaire ──────────────────────────────────────────
-        if ($bien->proprietaire) {
-            $msgProprio = $decision === 'publier'
-                ? "Bonne nouvelle ! Votre bien « {$bien->titre} » a été vérifié et approuvé par notre équipe. Connectez-vous pour le publier sur la plateforme quand vous le souhaitez. 🎉"
-                : "La publication de votre bien « {$bien->titre} » est en attente de corrections.";
-
-            $emailProprioHtml = EmailTemplateService::generic(
-                titre: $decision === 'publier' ? '🎉 Votre bien est approuvé !' : 'Bien en attente de corrections',
-                intro: $msgProprio,
-                rows:  [
-                    ['icon' => '🏠', 'label' => 'Bien', 'value' => $bien->titre],
-                    ['icon' => '✅', 'label' => 'Statut', 'value' => $decision === 'publier' ? 'Approuvé — prêt à publier' : 'Corrections requises'],
-                ],
-                noteBox: ($decision === 'rejeter' && $note) ? $note : null,
-            );
-
-            $this->notifService->notify(
-                user:         $bien->proprietaire,
-                type:         $decision === 'publier' ? 'bien_valide' : 'bien_corrections_requises',
-                titre:        $decision === 'publier' ? 'Bien approuvé — publiez-le ! 🎉' : 'Corrections requises',
-                message:      $msgProprio,
-                data:         ['bien_id' => $bien->id, 'bien_titre' => $bien->titre, 'decision' => $decision],
-                emailSubject: "ImmoPro — " . ($decision === 'publier' ? "Votre bien est approuvé, publiez-le !" : "Corrections requises : {$bien->titre}"),
-                emailBody:    $emailProprioHtml,
-            );
-        }
-
-        // ── Log d'activité ────────────────────────────────────────────────────
-        activity()
-            ->causedBy($admin)
-            ->performedOn($bien)
-            ->withProperties([
-                'rapport_id' => $rapport->id,
-                'decision'   => $decision,
-                'note'       => $note,
-            ])
-            ->log($decision === 'publier'
-                ? "Bien publié via rapport : {$bien->titre}"
-                : "Rapport rejeté — bien remis en cours : {$bien->titre}");
-
         return response()->json([
-            'success' => true,
-            'message' => $decision === 'publier'
-                ? 'Bien publié avec succès.'
-                : 'Rapport rejeté. L\'agent a été notifié.',
-            'data'    => $this->formatFull($rapport->fresh(['bien', 'agent'])),
-        ]);
+            'success' => false,
+            'message' => 'La décision (approuver/rejeter) est maintenant prise par l\'agent, pas par l\'admin.',
+        ], 403);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/admin/rapports/counts
-    // Compteurs pour le badge dans l'interface admin
     // ─────────────────────────────────────────────────────────────────────────
 
     public function counts(): JsonResponse
@@ -279,6 +167,8 @@ class AdminRapportController extends Controller
                 'id'               => $bien->id,
                 'titre'            => $bien->titre,
                 'adresse'          => $bien->adresse,
+                'latitude'         => $bien->latitude ? (float) $bien->latitude : null,
+                'longitude'        => $bien->longitude ? (float) $bien->longitude : null,
                 'statut'           => $bien->statut,
                 'type_bien'        => $bien->type_bien,
                 'type_transaction' => $bien->type_transaction,

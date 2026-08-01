@@ -34,7 +34,7 @@ class BienPublicController extends Controller
             'rayon_km'         => 'nullable|numeric|between:1,100',
         ]);
 
-        $query = Bien::with(['medias'])->publie();
+        $query = Bien::with(['medias', 'categorie'])->publie();
 
         // ── Filtres ───────────────────────────────────────────────────────────
 
@@ -116,7 +116,7 @@ class BienPublicController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $bien = Bien::with(['medias', 'documents', 'proprietaire', 'agent'])
+        $bien = Bien::with(['medias', 'documents', 'proprietaire', 'agent', 'categorie'])
             ->publie()
             ->findOrFail($id);
 

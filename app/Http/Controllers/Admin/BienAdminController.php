@@ -9,12 +9,16 @@ use App\Models\Bien;
 use App\Models\User;
 use App\Services\EmailTemplateService;
 use App\Services\NotificationService;
+use App\Services\WorkflowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class BienAdminController extends Controller
 {
-    public function __construct(private readonly NotificationService $notifService) {}
+    public function __construct(
+        private readonly NotificationService $notifService,
+        private readonly WorkflowService     $workflowService,
+    ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/admin/biens
@@ -82,9 +86,10 @@ class BienAdminController extends Controller
         $request->validate([
             'statut'     => 'required|in:valide,rejete,archive',
             'note_admin' => 'nullable|string|max:1000',
+            'prix_visite'=> 'nullable|numeric|min:0',
         ]);
 
-        $bien = Bien::findOrFail($id);
+        $bien = Bien::with(['categorie'])->findOrFail($id);
 
         // Transitions autorisées
         // L'admin approuve → statut "valide" (le propriétaire publie lui-même ensuite)
@@ -111,6 +116,19 @@ class BienAdminController extends Controller
 
         if ($nouveauStatut === 'valide') {
             $payload['note_admin'] = null;
+            // Si le tarif visite est fourni explicitement, l'utiliser
+            if ($request->filled('prix_visite')) {
+                $payload['prix_visite'] = (float) $request->input('prix_visite');
+            }
+            // Sinon calculer automatiquement depuis la catégorie si le type est "pourcentage"
+            elseif (! $bien->prix_visite && $bien->categorie) {
+                $cat = $bien->categorie;
+                if ($cat->visite_tarif_type === 'pourcentage' && $cat->visite_pourcentage > 0) {
+                    $payload['prix_visite'] = $cat->calculerPrixVisite((float) $bien->prix);
+                } elseif ($cat->visite_tarif_type === 'fixe_manuel' && $cat->visite_tarif_fixe > 0) {
+                    $payload['prix_visite'] = (float) $cat->visite_tarif_fixe;
+                }
+            }
         }
 
         if ($nouveauStatut === 'rejete') {
@@ -205,37 +223,88 @@ class BienAdminController extends Controller
             'agent_id' => 'required|uuid|exists:users,id',
         ]);
 
+        // Valider que l'agent existe et a bien le rôle 'agent'
+        $agentUser = User::where('id', $request->input('agent_id'))
+                         ->where('role', 'agent')
+                         ->first();
+
+        if (! $agentUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cet utilisateur n\'est pas un agent valide.',
+            ], 422);
+        }
+
         $bien = Bien::where('statut', 'en_attente')->findOrFail($id);
 
-        $bien->update(['agent_id' => $request->input('agent_id')]);
+        $bien->update([
+            'agent_id'   => $agentUser->id,
+            'statut'     => 'en_cours',
+            'claimed_at' => now(),
+        ]);
 
         // ── Notifier l'agent assigné ──────────────────────────────────────────
-        $agentUser = User::find($request->input('agent_id'));
-        if ($agentUser) {
+        $emailHtml = EmailTemplateService::generic(
+            titre: '📋 Nouveau bien à traiter',
+            intro: "Un nouveau bien immobilier vous a été assigné par l'administration.",
+            rows:  [
+                ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
+                ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse ?? '—'],
+            ],
+        );
+
+        $this->notifService->notify(
+            user:         $agentUser,
+            type:         'bien_assigne',
+            titre:        'Nouveau bien assigné',
+            message:      "Le bien « {$bien->titre} » vous a été assigné par l'administration.",
+            data:         ['bien_id' => $bien->id, 'bien_titre' => $bien->titre],
+            emailSubject: "ImmoPro — Nouveau bien à traiter : {$bien->titre}",
+            emailBody:    $emailHtml,
+        );
+
+        // ── Notifier le propriétaire ──────────────────────────────────────────
+        $proprietaire = $bien->proprietaire ?? User::find($bien->user_id);
+        if ($proprietaire && $agentUser) {
             $emailHtml = EmailTemplateService::generic(
-                titre: '📋 Nouveau bien à traiter',
-                intro: "Un nouveau bien immobilier vous a été assigné par l'administration.",
+                titre: '✅ Votre dossier est pris en charge',
+                intro: "Votre bien immobilier est maintenant en cours de traitement par un agent.",
                 rows:  [
-                    ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
-                    ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse ?? '—'],
+                    ['icon' => '🏠', 'label' => 'Bien',   'value' => $bien->titre],
+                    ['icon' => '👤', 'label' => 'Agent',  'value' => $agentUser->first_name . ' ' . $agentUser->last_name],
                 ],
             );
 
             $this->notifService->notify(
-                user:         $agentUser,
-                type:         'bien_assigne',
-                titre:        'Nouveau bien assigné',
-                message:      "Le bien « {$bien->titre} » vous a été assigné par l'administration.",
+                user:         $proprietaire,
+                type:         'dossier_pris_en_charge',
+                titre:        'Dossier pris en charge',
+                message:      "Votre bien « {$bien->titre} » est maintenant pris en charge par un agent.",
                 data:         ['bien_id' => $bien->id, 'bien_titre' => $bien->titre],
-                emailSubject: "ImmoPro — Nouveau bien à traiter : {$bien->titre}",
+                emailSubject: "ImmoPro — Votre dossier est en cours de traitement",
                 emailBody:    $emailHtml,
             );
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Bien attribué à l\'agent.',
-            'data'    => new BienResource($bien->fresh(['medias', 'documents', 'proprietaire'])),
+            'message' => 'Bien attribué à l\'agent. Le statut est passé en cours.',
+            'data'    => new BienResource($bien->fresh(['medias', 'documents', 'proprietaire', 'agent'])),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/admin/biens/{id}/workflow
+    // Suivi de progression du bien — lecture seule, accès tous biens.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function workflow(string $id): JsonResponse
+    {
+        $bien = Bien::with(['agent', 'rapport'])->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->workflowService->calculer($bien),
         ]);
     }
 }

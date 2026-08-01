@@ -8,6 +8,7 @@ use App\Models\Paiement;
 use App\Models\PlanAbonnement;
 use App\Models\Recu;
 use App\Models\UserAbonnement;
+use App\Services\EmailTemplateService;
 use App\Services\Payment\SemoaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -137,15 +138,26 @@ class AbonnementController extends Controller
             ->first();
 
         if ($existingPaiement) {
+            $instructions = match($operateur) {
+                'TMONEY' => "Une notification PUSH T-Money a été envoyée. Confirmez le paiement de " . number_format($montant, 0, ',', ' ') . " FCFA. Sinon composez #145#.",
+                'FLOOZ'  => "Une notification PUSH Flooz a été envoyée. Confirmez le paiement de " . number_format($montant, 0, ',', ' ') . " FCFA. Sinon composez *155#.",
+                'CARD'   => "Rendez-vous sur le portail de paiement sécurisé.",
+                default  => "Suivez les instructions de votre opérateur.",
+            };
+
             return response()->json([
                 'success' => true,
                 'message' => 'Une demande de paiement est déjà en cours pour ce plan.',
                 'data'    => [
-                    'paiement_id' => $existingPaiement->id,
-                    'bill_id'     => $existingPaiement->semoa_bill_id,
-                    'montant'     => $montant,
-                    'operateur'   => $operateur,
-                    'statut'      => 'initie',
+                    'paiement_id'  => $existingPaiement->id,
+                    'bill_id'      => $existingPaiement->semoa_bill_id,
+                    'montant'      => $montant,
+                    'operateur'    => $operateur,
+                    'statut'       => 'initie',
+                    'instructions' => $instructions,
+                    'payment_url'  => $existingPaiement->semoa_bill_id
+                        ? 'https://sandbox.cashpay.tg/facture/' . $existingPaiement->semoa_bill_id
+                        : null,
                 ],
             ]);
         }
@@ -184,7 +196,7 @@ class AbonnementController extends Controller
                 'reference'    => $reference . '-' . $paiement->id,
                 'description'  => "Abonnement ImmoPro — {$plan->nom} ({$plan->nb_publications} publications)",
                 'callback_url' => $callbackUrl,
-                'redirect_url' => 'immopro://abonnement/retour?statut=paye&paiement_id=' . $paiement->id,
+                'redirect_url' => 'immopro://paiement/retour?statut=paye&paiement_id=' . $paiement->id,
             ]);
 
             // 4. Déclencher le PUSH USSD si Mobile Money
@@ -302,8 +314,9 @@ class AbonnementController extends Controller
             // 1. Confirmer le paiement
             $paiement->update(['statut' => 'confirme']);
 
-            // 2. Activer l'abonnement
-            $userAbonnement->update(['statut' => 'actif']);
+            // 2. Activer l'abonnement (fusion si un abonnement actif existe déjà)
+            $abonnementResultat = $userAbonnement->activerEnFusionnantSiNecessaire();
+            $estFusionne        = $abonnementResultat->id !== $userAbonnement->id;
 
             // 3. Générer le reçu
             $recu = Recu::create([
@@ -314,12 +327,39 @@ class AbonnementController extends Controller
 
             // 4. Notifier l'utilisateur
             try {
+                $operateurLabel = match(strtoupper($paiement->operateur_paiement ?? '')) {
+                    'CARD'   => 'Carte bancaire',
+                    'TMONEY' => 'T-Money',
+                    'FLOOZ'  => 'Moov Flooz',
+                    default  => $paiement->operateur_paiement ?? '—',
+                };
+
+                $messageFusion = $estFusionne
+                    ? "Vos publications ont été ajoutées à votre abonnement en cours. Vous avez maintenant {$abonnementResultat->nb_publications_restantes} publication(s) disponible(s)."
+                    : "Votre abonnement \"{$userAbonnement->plan->nom}\" est actif. Vous avez {$abonnementResultat->nb_publications_restantes} publication(s) disponible(s).";
+
                 app(\App\Services\NotificationService::class)->notify(
                     $request->user(),
                     'abonnement_active',
-                    'Abonnement activé !',
-                    "Votre abonnement \"{$userAbonnement->plan->nom}\" est actif. Vous avez {$userAbonnement->nb_publications_restantes} publication(s) disponible(s).",
-                    ['abonnement_id' => $userAbonnement->id]
+                    '🎉 Abonnement activé !',
+                    $messageFusion,
+                    ['abonnement_id' => $abonnementResultat->id],
+                    '🎉 Votre abonnement ImmoPro est actif !',
+                    EmailTemplateService::generic(
+                        'Abonnement activé avec succès !',
+                        $estFusionne
+                            ? "Vos nouvelles publications ont été ajoutées à votre abonnement <strong>{$abonnementResultat->plan->nom}</strong> en cours."
+                            : "Votre abonnement <strong>{$userAbonnement->plan->nom}</strong> est maintenant actif.",
+                        [
+                            ['icon' => '📦', 'label' => 'Plan',                     'value' => $userAbonnement->plan->nom],
+                            ['icon' => '📋', 'label' => 'Publications disponibles', 'value' => $abonnementResultat->nb_publications_restantes . ' publication(s)'],
+                            ['icon' => '🧾', 'label' => 'Reçu',                    'value' => $recu->numero_recu],
+                            ['icon' => '💳', 'label' => 'Opérateur',               'value' => $operateurLabel],
+                            ['icon' => '💰', 'label' => 'Montant payé',            'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                        ],
+                        null,
+                        'Merci de votre confiance ! Rendez-vous sur l\'application pour publier vos annonces.'
+                    )
                 );
             } catch (\Throwable $e) {
                 Log::warning('[AbonnementPaiement] Notification échouée : ' . $e->getMessage());
@@ -329,12 +369,15 @@ class AbonnementController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Abonnement activé avec succès !',
+                'message' => $estFusionne
+                    ? 'Publications ajoutées à votre abonnement en cours !'
+                    : 'Abonnement activé avec succès !',
                 'data'    => [
-                    'abonnement_id'             => $userAbonnement->id,
+                    'abonnement_id'             => $abonnementResultat->id,
                     'plan'                      => $userAbonnement->plan->nom,
-                    'nb_publications_restantes' => $userAbonnement->nb_publications_restantes,
-                    'statut'                    => 'actif',
+                    'nb_publications_restantes' => $abonnementResultat->nb_publications_restantes,
+                    'statut'                    => $abonnementResultat->statut,
+                    'fusionne'                  => $estFusionne,
                     'recu'                      => [
                         'id'          => $recu->id,
                         'numero_recu' => $recu->numero_recu,

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AttributDefinition;
 use App\Models\Categorie;
+use App\Models\TypeLogement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -123,17 +124,27 @@ class CategorieController extends Controller
         $categorie = Categorie::findOrFail($id);
 
         $request->validate([
-            'nom'                    => 'sometimes|string|max:100',
-            'description'            => 'nullable|string|max:500',
-            'actif'                  => 'sometimes|boolean',
-            'ordre_affichage'        => 'sometimes|integer|min:0',
-            'pourcentage_commission' => 'sometimes|numeric|min:0|max:100',
+            'nom'                     => 'sometimes|string|max:100',
+            'description'             => 'nullable|string|max:500',
+            'actif'                   => 'sometimes|boolean',
+            'ordre_affichage'         => 'sometimes|integer|min:0',
+            'pourcentage_commission'  => 'sometimes|numeric|min:0|max:100',
             'frais_etude_pourcentage' => 'sometimes|numeric|min:0|max:100',
+            'a_chambres'              => 'sometimes|boolean',
+            'a_superficie_terrain'    => 'sometimes|boolean',
+            'documents_optionnels'    => 'nullable|array',
+            'documents_optionnels.*'  => 'string|exists:config_types_document,slug',
+            // Tarification des visites
+            'visite_tarif_type'       => 'sometimes|in:pourcentage,fixe_manuel',
+            'visite_pourcentage'      => 'nullable|numeric|min:0|max:100',
+            'visite_tarif_fixe'       => 'nullable|numeric|min:0',
         ]);
 
         $categorie->update($request->only([
             'nom', 'description', 'actif', 'ordre_affichage',
             'pourcentage_commission', 'frais_etude_pourcentage',
+            'a_chambres', 'a_superficie_terrain', 'documents_optionnels',
+            'visite_tarif_type', 'visite_pourcentage', 'visite_tarif_fixe',
         ]));
 
         return response()->json([
@@ -291,6 +302,73 @@ class CategorieController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // GET  /api/admin/categories/{id}/types-logement
+    // POST /api/admin/categories/{id}/types-logement
+    // PUT  /api/admin/categories/{id}/types-logement/{tid}
+    // DELETE /api/admin/categories/{id}/types-logement/{tid}
+    //
+    // CRUD pour les types de logement (ex : Studio/F1, F2, F3…)
+    // Permet à l'admin de configurer dynamiquement les types disponibles
+    // par catégorie sans modifier le code.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function typesLogement(string $id): JsonResponse
+    {
+        $categorie = Categorie::findOrFail($id);
+        $types = $categorie->typesLogement()->get()->map(fn ($t) => $this->formatTypeLogement($t));
+        return response()->json(['success' => true, 'data' => $types]);
+    }
+
+    public function addTypeLogement(Request $request, string $id): JsonResponse
+    {
+        $categorie = Categorie::findOrFail($id);
+        $request->validate([
+            'slug'        => ['required', 'string', 'max:50', 'regex:/^[a-z0-9_]+$/',
+                              Rule::unique('types_logement')->where('categorie_id', $categorie->id)],
+            'nom'         => 'required|string|max:100',
+            'description' => 'nullable|string|max:255',
+            'ordre'       => 'nullable|integer|min:0',
+        ]);
+        $ordreMax = TypeLogement::where('categorie_id', $categorie->id)->max('ordre') ?? 0;
+        $type = TypeLogement::create([
+            'categorie_id' => $categorie->id,
+            'slug'         => $request->input('slug'),
+            'nom'          => $request->input('nom'),
+            'description'  => $request->input('description'),
+            'est_socle'    => false,
+            'actif'        => true,
+            'ordre'        => $request->input('ordre', $ordreMax + 1),
+        ]);
+        return response()->json(['success' => true, 'message' => 'Type de logement ajouté.', 'data' => $this->formatTypeLogement($type)], 201);
+    }
+
+    public function updateTypeLogement(Request $request, string $id, string $tid): JsonResponse
+    {
+        $type = TypeLogement::where('categorie_id', $id)->findOrFail($tid);
+        $request->validate([
+            'nom'         => 'sometimes|string|max:100',
+            'description' => 'nullable|string|max:255',
+            'actif'       => 'sometimes|boolean',
+            'ordre'       => 'sometimes|integer|min:0',
+        ]);
+        if ($type->est_socle && $request->has('actif') && ! $request->boolean('actif')) {
+            return response()->json(['success' => false, 'message' => 'Un type socle ne peut pas être désactivé.'], 422);
+        }
+        $type->update($request->only(['nom', 'description', 'actif', 'ordre']));
+        return response()->json(['success' => true, 'message' => 'Type de logement mis à jour.', 'data' => $this->formatTypeLogement($type->fresh())]);
+    }
+
+    public function deleteTypeLogement(string $id, string $tid): JsonResponse
+    {
+        $type = TypeLogement::where('categorie_id', $id)->findOrFail($tid);
+        if ($type->est_socle) {
+            return response()->json(['success' => false, 'message' => 'Un type socle ne peut pas être supprimé. Désactivez-le.'], 422);
+        }
+        $type->delete();
+        return response()->json(['success' => true, 'message' => 'Type de logement supprimé.']);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers de formatage
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -305,8 +383,15 @@ class CategorieController extends Controller
             'ordre_affichage'         => $c->ordre_affichage,
             'pourcentage_commission'  => (float) $c->pourcentage_commission,
             'frais_etude_pourcentage' => (float) ($c->frais_etude_pourcentage ?? 0),
+            'a_chambres'              => (bool) ($c->a_chambres ?? true),
+            'a_superficie_terrain'    => (bool) ($c->a_superficie_terrain ?? false),
+            'documents_optionnels'    => $c->documents_optionnels ?? [],
             'nb_attributs'            => $c->attributs_count ?? 0,
             'nb_attributs_actifs'     => $c->attributs_actifs_count ?? 0,
+            // Tarification des visites
+            'visite_tarif_type'       => $c->visite_tarif_type ?? 'fixe_manuel',
+            'visite_pourcentage'      => $c->visite_pourcentage ? (float) $c->visite_pourcentage : null,
+            'visite_tarif_fixe'       => $c->visite_tarif_fixe ? (float) $c->visite_tarif_fixe : null,
         ];
     }
 
@@ -315,6 +400,19 @@ class CategorieController extends Controller
         return array_merge($this->formatCategorie($c), [
             'attributs' => $c->attributs->map(fn ($a) => $this->formatAttribut($a))->values(),
         ]);
+    }
+
+    private function formatTypeLogement(TypeLogement $t): array
+    {
+        return [
+            'id'          => $t->id,
+            'slug'        => $t->slug,
+            'nom'         => $t->nom,
+            'description' => $t->description,
+            'est_socle'   => $t->est_socle,
+            'actif'       => $t->actif,
+            'ordre'       => $t->ordre,
+        ];
     }
 
     private function formatAttribut(AttributDefinition $a): array

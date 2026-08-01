@@ -35,7 +35,7 @@ class AuthController extends Controller
         // Identifiants invalides (utilisateur introuvable ou mauvais mdp)
         if (!$user || !Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Identifiants invalides.'],
+                'email' => ['Identifiants incorrects.'],
             ]);
         }
 

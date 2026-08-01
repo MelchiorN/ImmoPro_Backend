@@ -12,6 +12,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trusted proxies : accepte ngrok et tout reverse proxy (pour URL HTTPS correctes)
+        $middleware->trustProxies(at: '*');
+
         // CORS : autorise les requêtes cross-origin (mobile Flutter + frontend)
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
 

@@ -874,7 +874,7 @@ class LocationController extends Controller
         $user = $request->user();
 
         $locations = \App\Models\Location::with(['bien', 'paiement', 'recu'])
-            ->where('client_id', $user->id)
+            ->where('locataire_id', $user->id)
             ->latest()
             ->paginate(20);
 
@@ -927,9 +927,9 @@ class LocationController extends Controller
     {
         $user = $request->user();
 
-        $totalLocations    = \App\Models\Location::where('client_id', $user->id)->count();
-        $locationsActives  = \App\Models\Location::where('client_id', $user->id)->where('statut', 'actif')->count();
-        $totalDepenses     = \App\Models\Location::where('client_id', $user->id)
+        $totalLocations    = \App\Models\Location::where('locataire_id', $user->id)->count();
+        $locationsActives  = \App\Models\Location::where('locataire_id', $user->id)->where('statut', 'actif')->count();
+        $totalDepenses     = \App\Models\Location::where('locataire_id', $user->id)
                                 ->whereHas('paiement', fn($q) => $q->where('statut', 'valide'))
                                 ->sum('montant_total');
         $totalFavoris      = $user->favoris()->count();

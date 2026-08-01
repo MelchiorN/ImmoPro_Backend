@@ -4,15 +4,18 @@ namespace App\Http\Controllers\Agent;
 
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
-use App\Models\Notification;
 use App\Models\Rapport;
 use App\Models\User;
+use App\Notifications\DecisionBienAdminNotification;
+use App\Notifications\DecisionBienNotification;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Mail;
 
 class AgentRapportController extends Controller
 {
+    public function __construct(private readonly NotificationService $notifService) {}
+
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/agent/rapports
     // Liste des rapports de l'agent connecté
@@ -154,76 +157,169 @@ class AgentRapportController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // POST /api/agent/rapports/{id}/soumettre
-    // Soumettre le rapport à l'admin pour décision
+    // PUT /api/agent/biens/{bienId}/rapport/autosave
+    // Auto-sauvegarde permanente — pas de "soumettre", l'admin lit en direct.
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function soumettre(Request $request, string $id): JsonResponse
+    public function autosave(Request $request, string $bienId): JsonResponse
     {
         $agentId = $request->user()->id;
-        $agent   = $request->user();
 
-        $rapport = Rapport::with(['bien'])
+        $bien = Bien::where('id', $bienId)
             ->where('agent_id', $agentId)
-            ->whereIn('statut', [Rapport::STATUT_BROUILLON, Rapport::STATUT_REJETE, Rapport::STATUT_SOUMIS])
-            ->findOrFail($id);
+            ->whereIn('statut', ['en_cours', 'en_attente'])
+            ->firstOrFail();
 
-        // Valider le contenu minimal
-        $request->validate([
-            'contenu'     => 'sometimes|string',
-            'note_finale' => 'sometimes|string',
-            'checklist'   => 'sometimes|array',
+        $data = $request->validate([
+            'titre'       => 'nullable|string|max:255',
+            'contenu'     => 'nullable|string',
+            'checklist'   => 'nullable|array',
+            'note_finale' => 'nullable|string',
         ]);
 
-        // Mettre à jour le contenu si fourni
-        $updateData = array_filter([
-            'contenu'     => $request->input('contenu'),
-            'note_finale' => $request->input('note_finale'),
-            'checklist'   => $request->input('checklist'),
-        ], fn ($v) => $v !== null);
+        $rapport = Rapport::updateOrCreate(
+            ['bien_id' => $bien->id, 'agent_id' => $agentId],
+            array_merge(['statut' => Rapport::STATUT_BROUILLON], array_filter($data, fn ($v) => $v !== null))
+        );
 
-        $rapport->update(array_merge($updateData, [
-            'statut'    => Rapport::STATUT_SOUMIS,
-            'soumis_le' => now(),
-            'note_rejet' => null, // reset rejet précédent
-        ]));
+        $bien->update(['last_activity_at' => now()]);
 
-        $bien = $rapport->bien;
+        $rapport->load(['bien.proprietaire', 'bien.medias']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rapport sauvegardé.',
+            'data'    => $this->formatRapport($rapport),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/agent/biens/{bienId}/rapport/decision
+    // L'AGENT décide d'approuver ou rejeter — pas l'admin.
+    // body : { "decision": "approuver"|"rejeter", "note": "..." }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function decision(Request $request, string $bienId): JsonResponse
+    {
+        $agent = $request->user();
+
+        $request->validate([
+            'decision' => 'required|in:approuver,rejeter',
+            'note'     => 'required_if:decision,rejeter|nullable|string|max:1000',
+            'prix_visite' => 'nullable|numeric|min:0',
+        ]);
+
+        $bien = Bien::where('id', $bienId)
+            ->where('agent_id', $agent->id)
+            ->whereIn('statut', ['en_cours'])   // Seul en_cours autorise une décision
+            ->with(['proprietaire'])
+            ->firstOrFail();
+
+        $rapport = Rapport::where('bien_id', $bienId)
+            ->where('agent_id', $agent->id)
+            ->firstOrFail();
+
         $nomAgent = trim("{$agent->first_name} {$agent->last_name}");
 
-        // ── Notifications in-app pour tous les admins ─────────────────────────
-        $admins = User::where('role', 'admin')->get();
-        foreach ($admins as $admin) {
-            Notification::create([
-                'user_id' => $admin->id,
-                'type'    => 'rapport_soumis',
-                'titre'   => 'Rapport à examiner',
-                'message' => "L'agent {$nomAgent} a soumis un rapport pour « {$bien->titre} ».",
-                'canal'   => 'push',
-                'lu'      => false,
-                'data'    => [
-                    'rapport_id' => $rapport->id,
-                    'bien_id'    => $bien->id,
-                    'bien_titre' => $bien->titre,
-                    'agent_id'   => $agentId,
-                    'agent_nom'  => $nomAgent,
-                ],
-            ]);
+        if ($request->decision === 'approuver') {
+            $rapport->update(['statut' => Rapport::STATUT_VALIDE]);
 
-            // ── Email admin ───────────────────────────────────────────────────
-            try {
-                Mail::raw(
-                    "Bonjour,\n\nL'agent {$nomAgent} a soumis un rapport d'inspection pour le bien :\n"
-                    . "« {$bien->titre} » ({$bien->adresse})\n\n"
-                    . "Connectez-vous à l'administration pour consulter ce rapport et décider de la publication.\n\n"
-                    . "— ImmoPro",
-                    fn ($msg) => $msg
-                        ->to($admin->email)
-                        ->subject("ImmoPro — Rapport à examiner : {$bien->titre}")
-                );
-            } catch (\Exception $e) {
-                // Ne pas bloquer si l'email échoue
-                \Log::warning("Email admin notification failed: " . $e->getMessage());
+            // Calculer le prix de visite
+            $prixVisite = 0;
+            $cat = $bien->getCategorie();
+            if ($cat) {
+                if ($cat->visite_tarif_type === 'pourcentage') {
+                    $prixVisite = $cat->calculerPrixVisite((float) $bien->prix);
+                } else {
+                    $prixVisite = (float) ($cat->visite_tarif_fixe ?? $request->input('prix_visite', 0));
+                }
+            }
+            if ($request->has('prix_visite')) {
+                $prixVisite = (float) $request->input('prix_visite');
+            }
+
+            $publicationAuto = (bool) ($bien->publication_auto ?? true);
+
+            if ($publicationAuto) {
+                // ── Publication automatique : le bien est directement publié ──
+                $bien->update([
+                    'statut'           => 'publie',
+                    'publie_le'        => now(),
+                    'note_admin'       => null,
+                    'prix_visite'      => $prixVisite,
+                    'last_activity_at' => now(),
+                ]);
+
+                if ($bien->proprietaire) {
+                    $this->notifService->notify(
+                        $bien->proprietaire,
+                        'bien_valide_publie',
+                        '🎉 Votre bien est validé et publié !',
+                        "Bonne nouvelle ! Votre bien « {$bien->titre} » a été validé et est maintenant visible par tous sur la plateforme.",
+                        ['bien_id' => (string) $bien->id],
+                        'Votre bien est publié — ImmoPro',
+                        \App\Services\EmailTemplateService::generic(
+                            titre: '🎉 Votre bien est validé et publié !',
+                            intro: "Votre bien « {$bien->titre} » a été validé par notre équipe et est maintenant disponible sur la plateforme ImmoPro.",
+                            rows: [
+                                ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
+                                ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
+                                ['icon' => '✅', 'label' => 'Statut',  'value' => 'Publié et visible'],
+                            ],
+                            outro: 'Des locataires ou acheteurs peuvent maintenant vous contacter via ImmoPro.'
+                        ),
+                    );
+                }
+            } else {
+                // ── Publication manuelle : le bien reste en statut "valide" ──
+                // Le propriétaire recevra une notification pour publier lui-même
+                $bien->update([
+                    'statut'           => 'valide',
+                    'note_admin'       => null,
+                    'prix_visite'      => $prixVisite,
+                    'last_activity_at' => now(),
+                ]);
+
+                if ($bien->proprietaire) {
+                    $this->notifService->notify(
+                        $bien->proprietaire,
+                        'bien_valide_attente_publication',
+                        '✅ Votre bien est validé — À vous de publier !',
+                        "Votre bien « {$bien->titre} » a été validé. Rendez-vous dans vos annonces pour le publier quand vous le souhaitez.",
+                        ['bien_id' => (string) $bien->id],
+                        'Votre bien est validé — ImmoPro',
+                        \App\Services\EmailTemplateService::generic(
+                            titre: '✅ Votre bien est validé !',
+                            intro: "Votre bien « {$bien->titre} » a été validé par notre équipe. Vous avez choisi de le publier vous-même.",
+                            rows: [
+                                ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
+                                ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
+                                ['icon' => '✅', 'label' => 'Statut',  'value' => 'Validé — En attente de votre publication'],
+                            ],
+                            outro: 'Connectez-vous à votre espace ImmoPro et cliquez sur « Publier maintenant » pour rendre votre bien visible.'
+                        ),
+                    );
+                }
+            }
+
+            // Notifier les admins
+            foreach (User::where('role', 'admin')->get() as $admin) {
+                $admin->notify(new DecisionBienAdminNotification($bien, 'approuve'));
+            }
+
+        } else {
+            $note = $request->note ?? 'Non conforme.';
+            $rapport->update(['statut' => Rapport::STATUT_REJETE, 'note_finale' => $note]);
+            $bien->update(['statut' => 'rejete', 'note_admin' => $note, 'last_activity_at' => now()]);
+
+            // Notifier le propriétaire
+            if ($bien->proprietaire) {
+                $bien->proprietaire->notify(new DecisionBienNotification($bien, 'rejete', $note));
+            }
+
+            // Notifier les admins
+            foreach (User::where('role', 'admin')->get() as $admin) {
+                $admin->notify(new DecisionBienAdminNotification($bien, 'rejete'));
             }
         }
 
@@ -231,7 +327,7 @@ class AgentRapportController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Rapport soumis à l\'administration. Vous serez notifié de la décision.',
+            'message' => $request->decision === 'approuver' ? 'Bien approuvé.' : 'Bien rejeté.',
             'data'    => $this->formatRapport($rapport),
         ]);
     }

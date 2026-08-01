@@ -35,7 +35,7 @@ class Paiement extends Model
     }
 
     public const STATUTS        = ['initie', 'en_attente', 'confirme', 'succes', 'echoue'];
-    public const TYPES_PAIEMENT = ['location', 'abonnement', 'frais_etude'];
+    public const TYPES_PAIEMENT = ['location', 'abonnement', 'frais_etude', 'visite'];
 
     // ─── Relations ─────────────────────────────────────────────────────────────
 

@@ -96,7 +96,7 @@ class NotificationService
                         'priority' => 'high',
                         'notification' => [
                             'sound'        => 'default',
-                            'channel_id'   => 'immopro_notifs',
+                            'channel_id'   => 'high_importance_channel',
                         ],
                     ],
                     'apns'         => [

@@ -31,8 +31,18 @@ class ConfigPublicationController extends Controller
     public function update(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'essais_gratuits_defaut' => 'sometimes|integer|min:0',
-            'frais_etude_actifs'     => 'sometimes|boolean',
+            'essais_gratuits_defaut'  => 'sometimes|integer|min:0',
+            'frais_etude_actifs'      => 'sometimes|boolean',
+            // SLA
+            'sla1_valeur'             => 'sometimes|integer|min:1',
+            'sla1_unite'              => 'sometimes|in:minutes,heures,jours,semaines,mois',
+            'sla2_valeur'             => 'sometimes|integer|min:1',
+            'sla2_unite'              => 'sometimes|in:minutes,heures,jours,semaines,mois',
+            // Visites
+            'visite_duree_valeur'     => 'sometimes|integer|min:5',
+            'visite_duree_unite'      => 'sometimes|in:minutes,heures,jours,semaines,mois',
+            'visite_delai_min_valeur' => 'sometimes|integer|min:0',
+            'visite_delai_min_unite'  => 'sometimes|in:minutes,heures,jours,semaines,mois',
         ]);
 
         if (empty($validated)) {

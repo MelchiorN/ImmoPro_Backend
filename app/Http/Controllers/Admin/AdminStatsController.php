@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\User;
 use App\Models\Visite;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminStatsController extends Controller
 {
@@ -74,6 +76,108 @@ class AdminStatsController extends Controller
                 ],
                 'biens_en_attente' => $biensList,
                 'agents_perf'      => $agentsPerf,
+            ],
+        ]);
+    }
+
+    // ── GET /api/admin/stats/charts ───────────────────────────────────────────
+    public function charts(Request $request): JsonResponse
+    {
+        $months = collect();
+        for ($i = 5; $i >= 0; $i--) {
+            $months->push(\Carbon\Carbon::now()->startOfMonth()->subMonths($i));
+        }
+
+        // Soumissions par mois
+        $soumis = Bien::select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(created_at, '%Y-%m') as mois"),
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as total')
+            )
+            ->where('created_at', '>=', \Carbon\Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Publications par mois
+        $publies = Bien::select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(updated_at, '%Y-%m') as mois"),
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as total')
+            )
+            ->where('statut', 'publie')
+            ->where('updated_at', '>=', \Carbon\Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Rejets par mois
+        $rejetes = Bien::select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(updated_at, '%Y-%m') as mois"),
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as total')
+            )
+            ->where('statut', 'rejete')
+            ->where('updated_at', '>=', \Carbon\Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Inscriptions clients par mois
+        $inscriptions = User::select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(created_at, '%Y-%m') as mois"),
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as total')
+            )
+            ->where('role', 'client')
+            ->where('created_at', '>=', \Carbon\Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        $labels       = [];
+        $dataSoum     = [];
+        $dataPub      = [];
+        $dataRejets   = [];
+        $dataInscr    = [];
+
+        foreach ($months as $date) {
+            $key = $date->format('Y-m');
+            $labels[]     = $date->locale('fr')->isoFormat('MMM YY');
+            $dataSoum[]   = $soumissions[$key]  ?? 0;
+            $dataPub[]    = $publications[$key] ?? 0;
+            $dataRejets[] = $rejets[$key]        ?? 0;
+            $dataInscr[]  = $inscriptions[$key]  ?? 0;
+        }
+
+        // Répartition par type de bien (top 6)
+        $parTypeBien = Bien::select('type_bien', DB::raw('COUNT(*) as total'))
+            ->groupBy('type_bien')
+            ->orderByDesc('total')
+            ->limit(6)
+            ->pluck('total', 'type_bien');
+
+        // Localisation des biens publiés (pour la carte)
+        $biensCarte = Bien::select('id', 'titre', 'adresse', 'latitude', 'longitude', 'type_bien', 'prix', 'unite_prix')
+            ->where('statut', 'publie')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->latest('publie_le')
+            ->limit(200)
+            ->get()
+            ->map(fn ($b) => [
+                'id'        => $b->id,
+                'titre'     => $b->titre,
+                'adresse'   => $b->adresse,
+                'lat'       => (float) $b->latitude,
+                'lng'       => (float) $b->longitude,
+                'type_bien' => $b->type_bien,
+                'prix'      => $b->prix,
+                'unite_prix'=> $b->unite_prix,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'labels'       => $labels,
+                'soumissions'  => $dataSoum,
+                'publications' => $dataPub,
+                'rejets'       => $dataRejets,
+                'inscriptions' => $dataInscr,
+                'par_type_bien'=> $parTypeBien,
+                'biens_carte'  => $biensCarte,
             ],
         ]);
     }

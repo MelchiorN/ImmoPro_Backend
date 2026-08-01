@@ -16,7 +16,7 @@ class AdminTransactionController extends Controller
 {
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/admin/transactions
-    // Liste paginée de tous les paiements (abonnement, frais_etude, location)
+    // Liste paginée de tous les paiements (abonnement, frais_etude, location, visite)
     // ─────────────────────────────────────────────────────────────────────────
 
     public function index(Request $request): JsonResponse
@@ -136,10 +136,11 @@ class AdminTransactionController extends Controller
     {
         // Résoudre le nom/label du payable selon le type
         $payableLabel = match ($p->type_paiement) {
-            'abonnement' => $this->labelAbonnement($p),
+            'abonnement'  => $this->labelAbonnement($p),
             'frais_etude' => $this->labelFraisEtude($p),
-            'location'   => $this->labelLocation($p),
-            default      => 'Inconnu',
+            'location'    => $this->labelLocation($p),
+            'visite'      => $this->labelVisite($p),
+            default       => 'Transaction #' . substr($p->id, 0, 8),
         };
 
         return [
@@ -188,5 +189,19 @@ class AdminTransactionController extends Controller
         $adresse = $loc->bien?->adresse ?? 'Bien';
         $locataire = $loc->locataire ? trim(($loc->locataire->prenom ?? '') . ' ' . ($loc->locataire->nom ?? '')) : 'Locataire';
         return "Location «{$adresse}» – {$locataire}";
+    }
+
+    private function labelVisite(Paiement $p): string
+    {
+        /** @var \App\Models\Bien|null $bien */
+        $bien = $p->payable;
+        if (! $bien instanceof \App\Models\Bien) return 'Visite #' . substr($p->id, 0, 8);
+        // Récupérer le client via la visite associée
+        $visite = \App\Models\Visite::where('bien_id', $bien->id)
+            ->where('type_visite', \App\Models\Visite::TYPE_CLIENT)
+            ->latest()->first();
+        $client = $visite?->client;
+        $nomClient = $client ? trim(($client->first_name ?? '') . ' ' . ($client->last_name ?? '')) : 'Client';
+        return "Visite «" . ($bien->titre ?? $bien->adresse ?? 'Bien') . "» – {$nomClient}";
     }
 }

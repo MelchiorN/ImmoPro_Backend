@@ -2,18 +2,26 @@
 
 namespace App\Http\Resources;
 
+use App\Services\BienDescriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Ressource complète (détail d'un bien).
  * Utilisée pour : GET /biens/{id}, GET /mes-biens/{id}
+ *
+ * Protection GPS : latitude et longitude sont masquées (null) pour les
+ * utilisateurs qui n'ont pas encore payé les frais de visite.
  */
 class BienResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $user   = $request->user();
         $canSee = $this->canSeeAdminNote($request);
+        $hasGps = $this->resource->hasPaidVisit($user);
+
+        $descriptionService = app(BienDescriptionService::class);
 
         return [
             'id'               => $this->id,
@@ -25,9 +33,11 @@ class BienResource extends JsonResource
 
             // Infos de base
             'titre'            => $this->titre,
-            'description'      => $this->description,
+            'description'      => $descriptionService->generer($this->resource),
             'prix'             => (float) $this->prix,
             'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
+            'prix_visite'      => $this->resource->getPrixVisiteEffectif(),
+            'visite_payee'     => $hasGps,   // indique au mobile s'il peut afficher la carte
             'unite_prix'       => $this->unite_prix,
             'avance_mois'      => $this->avance_mois,
             'caution'          => $this->caution ? (float) $this->caution : null,
@@ -36,10 +46,11 @@ class BienResource extends JsonResource
             'nb_salles_bain'   => $this->nb_salles_bain,
             'caracteristiques' => $this->caracteristiques ?? [],
 
-            // Localisation
+            // Localisation — adresse toujours visible
+            // latitude/longitude protégées : null tant que la visite n'est pas payée
             'adresse'          => $this->adresse,
-            'latitude'         => (float) $this->latitude,
-            'longitude'        => (float) $this->longitude,
+            'latitude'         => $hasGps ? (float) $this->latitude : null,
+            'longitude'        => $hasGps ? (float) $this->longitude : null,
 
             // Statut de publication
             'statut'           => $this->statut,
@@ -88,7 +99,7 @@ class BienResource extends JsonResource
                 'soumis_le' => $this->rapport->soumis_le?->toIso8601String(),
             ] : null),
 
-            // Médias & Documents
+            // Médias & Documents — toujours visibles
             'medias'           => MediaBienResource::collection($this->whenLoaded('medias')),
             'documents'        => DocumentBienResource::collection($this->whenLoaded('documents')),
 

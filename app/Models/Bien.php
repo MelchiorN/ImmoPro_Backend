@@ -39,6 +39,7 @@ class Bien extends Model
         'agent_id',
         'publie_le',
         'locked_until',
+        'publication_auto',
         // Déposant
         'role_deposant',
         'proprietaire_nom',
@@ -51,6 +52,12 @@ class Bien extends Model
         // Frais d'étude
         'frais_etude_statut',
         'frais_etude_paiement_id',
+        // Workflow SLA
+        'submitted_at',
+        'claimed_at',
+        'sla1_alerted_at',
+        'sla2_alerted_at',
+        'prix_visite',
     ];
 
     protected function casts(): array
@@ -66,13 +73,21 @@ class Bien extends Model
             'publie_le'         => 'datetime',
             'locked_until'      => 'datetime',
             'caracteristiques'  => 'array',
+            // Workflow SLA
+            'submitted_at'      => 'datetime',
+            'claimed_at'        => 'datetime',
+            'sla1_alerted_at'   => 'datetime',
+            'sla2_alerted_at'   => 'datetime',
+            'prix_visite'       => 'decimal:2',
         ];
     }
 
-    // Rôles de déposant valides
+    // Rôles de déposant valides — DÉPRÉCIÉ : utiliser ConfigRoleDeposant::slugsValides()
+    // Conservé pour rétrocompatibilité uniquement
     public const ROLES_DEPOSANT = ['proprietaire', 'agence', 'mandataire', 'heritier', 'autre'];
 
-    // Unités de prix valides
+    // Unités de prix valides — DÉPRÉCIÉ : utiliser ConfigUnitePrix::slugsValides()
+    // Conservé pour rétrocompatibilité uniquement
     public const UNITES_PRIX = ['jour', 'semaine', 'mois', 'annee'];
 
     // Statuts frais d'étude
@@ -148,6 +163,9 @@ class Bien extends Model
 
     public function getCategorie(): ?Categorie
     {
+        if (is_null($this->type_bien)) {
+            return null;
+        }
         return $this->categorie ?? Categorie::findBySlug($this->type_bien);
     }
 
@@ -191,7 +209,10 @@ class Bien extends Model
         return $this->statut === 'en_cours';
     }
 
-    /** Types de biens qui n'ont pas de pièces/salles de bain. */
+    /** Types de biens qui n'ont pas de pièces/salles de bain.
+     *  DÉPRÉCIÉ : utiliser Categorie->a_chambres depuis la BDD.
+     *  Conservé comme fallback si la migration n'est pas encore appliquée.
+     */
     public static function typeSansChambres(): array
     {
         return ['terrain', 'bureau', 'commerce', 'entrepot'];
@@ -231,5 +252,60 @@ class Bien extends Model
     public function fraisEtudeOk(): bool
     {
         return in_array($this->frais_etude_statut, ['non_requis', 'paye']);
+    }
+
+    public function visites(): HasMany
+    {
+        return $this->hasMany(Visite::class);
+    }
+
+    /**
+     * Retourne le prix de visite effectif du bien.
+     * 1. Utilise prix_visite s'il est défini sur le bien
+     * 2. Fallback : calcule depuis la configuration de la catégorie
+     * 3. Retourne null si aucun tarif configuré nulle part
+     */
+    public function getPrixVisiteEffectif(): ?float
+    {
+        if ($this->prix_visite && (float) $this->prix_visite > 0) {
+            return (float) $this->prix_visite;
+        }
+
+        $cat = $this->getCategorie();
+        if (! $cat) {
+            return null;
+        }
+
+        if ($cat->visite_tarif_type === 'pourcentage' && $cat->visite_pourcentage > 0) {
+            $montant = $cat->calculerPrixVisite((float) $this->prix);
+            return $montant > 0 ? $montant : null;
+        }
+
+        if ($cat->visite_tarif_type === 'fixe_manuel' && $cat->visite_tarif_fixe > 0) {
+            return (float) $cat->visite_tarif_fixe;
+        }
+
+        return null;
+    }
+
+    /**
+     * Vrai si l'utilisateur a payé les frais de visite pour ce bien (ou s'il a le droit de voir d'office).
+     */
+    public function hasPaidVisit(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        // Admin, agent assigné et propriétaire du bien ont accès d'office
+        if (in_array($user->role, ['admin', 'agent']) || $this->user_id === $user->id) {
+            return true;
+        }
+
+        // Vérifier s'il y a un paiement confirmé pour une visite de ce bien par ce client
+        return Visite::where('bien_id', $this->id)
+            ->where('client_id', $user->id)
+            ->where('est_payee', true)
+            ->exists();
     }
 }

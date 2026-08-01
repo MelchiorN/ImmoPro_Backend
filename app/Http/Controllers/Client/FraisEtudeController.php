@@ -10,6 +10,7 @@ use App\Models\Categorie;
 use App\Models\ConfigPublication;
 use App\Models\Paiement;
 use App\Models\Recu;
+use App\Services\EmailTemplateService;
 use App\Services\Payment\SemoaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -107,14 +108,26 @@ class FraisEtudeController extends Controller
             ->latest()->first();
 
         if ($existing) {
+            $instructionsExisting = match($operateur) {
+                'TMONEY' => "Notification PUSH T-Money envoyée. Confirmez le paiement de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'FLOOZ'  => "Notification PUSH Flooz envoyée. Confirmez le paiement de " . number_format($montant, 0, ',', ' ') . " FCFA.",
+                'CARD'   => "Rendez-vous sur le portail de paiement sécurisé.",
+                default  => "Suivez les instructions de votre opérateur.",
+            };
+
             return response()->json([
                 'success' => true,
                 'message' => 'Un paiement est déjà en cours pour ce dossier.',
                 'data'    => [
-                    'paiement_id' => $existing->id,
-                    'bill_id'     => $existing->semoa_bill_id,
-                    'montant'     => $montant,
-                    'statut'      => 'initie',
+                    'paiement_id'  => $existing->id,
+                    'bill_id'      => $existing->semoa_bill_id,
+                    'montant'      => $montant,
+                    'statut'       => 'initie',
+                    'operateur'    => $operateur,
+                    'instructions' => $instructionsExisting,
+                    'payment_url'  => $existing->semoa_bill_id
+                        ? 'https://sandbox.cashpay.tg/facture/' . $existing->semoa_bill_id
+                        : null,
                 ],
             ]);
         }
@@ -306,22 +319,36 @@ class FraisEtudeController extends Controller
                         $staff,
                         'nouveau_bien',
                         'Nouveau bien à vérifier',
-                        "Le dossier \"{$bien->titre}\" est en attente de vérification après paiement des frais.",
+                        "Le dossier \"{$bien->titre}\" est en attente de vérification après paiement des frais d'étude.",
                         ['bien_id' => (string) $bien->id]
                     );
                 }
             } catch (\Throwable $e) {
-                Log::warning('[FraisEtude] Notification échouée: ' . $e->getMessage());
+                Log::warning('[FraisEtude] Notification staff échouée: ' . $e->getMessage());
             }
 
-            // 6. Notifier le client
+            // 6. Notifier le client (push + email)
             try {
+                $emailBody = \App\Services\EmailTemplateService::generic(
+                    titre: '✅ Frais d\'étude confirmés',
+                    intro: "Le paiement de vos frais d'étude a été confirmé avec succès. Votre dossier est maintenant en cours d'analyse par notre équipe.",
+                    rows: [
+                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $bien->titre],
+                        ['icon' => '💰', 'label' => 'Frais payés', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                        ['icon' => '🧾', 'label' => 'N° Reçu',     'value' => $recu->numero_recu],
+                        ['icon' => '⏳', 'label' => 'Statut',      'value' => 'En cours d\'analyse'],
+                    ],
+                    outro: 'Délai de vérification estimé : 24 à 48 heures. Vous serez notifié dès qu\'une décision sera prise.'
+                );
+
                 app(\App\Services\NotificationService::class)->notify(
                     $user,
                     'frais_etude_confirme',
-                    'Frais d\'étude confirmés',
+                    'Frais d\'étude confirmés — Dossier en cours d\'analyse',
                     "Le paiement de vos frais d'étude pour \"{$bien->titre}\" a été confirmé. Votre dossier est maintenant en cours d'analyse.",
-                    ['bien_id' => (string) $bien->id, 'recu_id' => (string) $recu->id]
+                    ['bien_id' => (string) $bien->id, 'recu_id' => (string) $recu->id],
+                    'Confirmation paiement frais d\'étude — ImmoPro',
+                    $emailBody,
                 );
             } catch (\Throwable $e) {
                 Log::warning('[FraisEtude] Notification client échouée: ' . $e->getMessage());
@@ -502,7 +529,6 @@ class FraisEtudeController extends Controller
                     'bien_id'        => $bien->id,
                     'type'           => $isVideo ? 'video' : 'photo',
                     'chemin'         => $chemin,
-                    'url'            => \Illuminate\Support\Facades\Storage::disk('public')->url($chemin),
                     'est_principale' => $index === 0,
                     'ordre'          => $index,
                     'taille'         => $fichier->getSize(),
@@ -511,26 +537,30 @@ class FraisEtudeController extends Controller
             }
         }
 
-        // Sauvegarder documents
-        $mappingDocuments = [
-            'justificatif_propriete'  => 'justificatif_propriete',
-            'piece_identite'          => 'piece_identite',
-            'piece_identite_deposant' => 'piece_identite_deposant',
-            'mandat_gestion'          => 'mandat_gestion',
-            'procuration'             => 'procuration',
-            'acte_succession'         => 'acte_succession',
-            'autorisation_ecrite'     => 'autorisation_ecrite',
-        ];
+        // Sauvegarder documents — dynamiques depuis la config
+        $docsConfig = \App\Models\ConfigDocParRole::with('typeDocument')
+            ->whereHas('role', fn ($q) => $q->where('slug', $request->input('role_deposant', 'proprietaire')))
+            ->get();
 
-        foreach ($mappingDocuments as $inputKey => $typeDoc) {
-            if ($request->hasFile("documents.{$inputKey}")) {
-                $fichier = $request->file("documents.{$inputKey}");
+        $slugsValides = $docsConfig
+            ->filter(fn ($dr) => $dr->typeDocument && $dr->typeDocument->actif)
+            ->pluck('typeDocument.slug')
+            ->toArray();
+
+        // Docs optionnels de la catégorie
+        if ($categorie && ! empty($categorie->documents_optionnels)) {
+            $slugsValides = array_unique(array_merge($slugsValides, $categorie->documents_optionnels));
+        }
+
+        foreach ($slugsValides as $slug) {
+            if ($request->hasFile("documents.{$slug}")) {
+                $fichier = $request->file("documents.{$slug}");
                 $dossier = "biens/{$bien->id}/documents";
                 $chemin  = $fichier->store($dossier, 'local');
 
                 \App\Models\DocumentBien::create([
                     'bien_id'      => $bien->id,
-                    'type'         => $typeDoc,
+                    'type'         => $slug,
                     'chemin'       => $chemin,
                     'nom_original' => $fichier->getClientOriginalName(),
                     'taille'       => $fichier->getSize(),

@@ -11,6 +11,14 @@ class ConfigPublication extends Model
     protected $fillable = [
         'essais_gratuits_defaut',
         'frais_etude_actifs',
+        'sla1_valeur',
+        'sla1_unite',
+        'sla2_valeur',
+        'sla2_unite',
+        'visite_duree_valeur',
+        'visite_duree_unite',
+        'visite_delai_min_valeur',
+        'visite_delai_min_unite',
     ];
 
     /**
@@ -24,7 +32,11 @@ class ConfigPublication extends Model
     protected function casts(): array
     {
         return [
-            'frais_etude_actifs' => 'boolean',
+            'frais_etude_actifs'      => 'boolean',
+            'sla1_valeur'             => 'integer',
+            'sla2_valeur'             => 'integer',
+            'visite_duree_valeur'     => 'integer',
+            'visite_delai_min_valeur' => 'integer',
         ];
     }
 

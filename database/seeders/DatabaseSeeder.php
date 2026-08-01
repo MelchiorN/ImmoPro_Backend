@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Database\Seeders\CategorieSeeder;
+use Database\Seeders\ConfigPublicationSeeder;
+use Database\Seeders\DocumentLegalSeeder;
 use Database\Seeders\PlanAbonnementSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -26,10 +28,12 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             // UserSeeder::class,
-            CategorieSeeder::class,
+            // CategorieSeeder::class,
+            // ConfigPublicationSeeder::class,  // Types transaction, unités prix, types docs, rôles déposant
             // BienSeeder::class,
             // ContratTemplateSeeder::class,
             // PlanAbonnementSeeder::class,
+            DocumentLegalSeeder::class,     // CGU, CGV, Politique de confidentialité, À propos
         ]);
     }
 }

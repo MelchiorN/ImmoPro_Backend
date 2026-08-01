@@ -21,6 +21,12 @@ class Categorie extends Model
         'ordre_affichage',
         'pourcentage_commission',
         'frais_etude_pourcentage',
+        'a_chambres',
+        'a_superficie_terrain',
+        'documents_optionnels',
+        'visite_tarif_type',
+        'visite_pourcentage',
+        'visite_tarif_fixe',
     ];
 
     protected function casts(): array
@@ -29,7 +35,24 @@ class Categorie extends Model
             'actif'                   => 'boolean',
             'pourcentage_commission'  => 'decimal:2',
             'frais_etude_pourcentage' => 'decimal:2',
+            'a_chambres'              => 'boolean',
+            'a_superficie_terrain'    => 'boolean',
+            'documents_optionnels'    => 'array',
+            'visite_pourcentage'      => 'decimal:2',
+            'visite_tarif_fixe'       => 'decimal:2',
         ];
+    }
+
+    /**
+     * Calcule le tarif de la visite pour cette catégorie.
+     */
+    public function calculerPrixVisite(float $prixProprietaire): float
+    {
+        if ($this->visite_tarif_type === 'pourcentage') {
+            $pourcentage = (float) ($this->visite_pourcentage ?? 0);
+            return round($prixProprietaire * $pourcentage / 100, 2);
+        }
+        return (float) ($this->visite_tarif_fixe ?? 0);
     }
 
     /**
@@ -72,6 +95,17 @@ class Categorie extends Model
                     ->orderBy('ordre_affichage');
     }
 
+    /**
+     * Types de logement configurables (ex: Studio/F1, F2, F3, F4+).
+     * Utilisé principalement pour la catégorie "appartement".
+     */
+    public function typesLogement(): HasMany
+    {
+        return $this->hasMany(TypeLogement::class, 'categorie_id')
+                    ->where('actif', true)
+                    ->orderBy('ordre');
+    }
+
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
     public function scopeActif($query)
@@ -84,8 +118,11 @@ class Categorie extends Model
     /**
      * Retourne la catégorie correspondant à un type_bien (slug = type_bien).
      */
-    public static function findBySlug(string $slug): ?self
+    public static function findBySlug(?string $slug): ?self
     {
+        if (is_null($slug)) {
+            return null;
+        }
         return static::where('slug', $slug)->first();
     }
 }
