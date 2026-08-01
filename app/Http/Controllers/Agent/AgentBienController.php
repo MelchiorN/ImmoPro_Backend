@@ -293,7 +293,16 @@ class AgentBienController extends Controller
                     ->whereIn('statut', ['en_cours', 'en_attente'])
                     ->firstOrFail();
 
-        $bien->update($request->validated());
+        $validated = $request->validated();
+
+        // Fusionner les attributs dynamiques dans caracteristiques
+        if (isset($validated['attributs']) && is_array($validated['attributs'])) {
+            $existing = $bien->caracteristiques ?? [];
+            $validated['caracteristiques'] = array_merge($existing, $validated['attributs']);
+            unset($validated['attributs']);
+        }
+
+        $bien->update($validated);
         $bien->update(['last_activity_at' => now()]);
 
         return response()->json([
