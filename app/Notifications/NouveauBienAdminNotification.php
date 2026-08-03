@@ -3,45 +3,26 @@
 namespace App\Notifications;
 
 use App\Models\Bien;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-class NouveauBienAdminNotification extends Notification implements ShouldQueue
+/**
+ * Notification admin quand un nouveau bien est soumis.
+ *
+ * ⚠️  Canal 'database' natif DÉSACTIVÉ — la persistance en DB est gérée
+ *     par NotificationService.
+ */
+class NouveauBienAdminNotification extends Notification
 {
-    use Queueable;
+    public function __construct(public readonly Bien $bien) {}
 
-    public $bien;
-
-    /**
-     * Create a new notification instance.
-     */
-    public function __construct(Bien $bien)
-    {
-        $this->bien = $bien;
-    }
-
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
+    /** Aucun canal natif — on ne passe plus par la queue Laravel. */
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return [];
     }
 
-    /**
-     * Get the array representation of the notification.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(object $notifiable): array
     {
-        return [
-            'type' => 'nouveau_dossier_admin',
-            'bien_id' => $this->bien->id,
-            'message' => 'Un nouveau bien a été soumis sur la plateforme : ' . $this->bien->titre . '.'
-        ];
+        return [];
     }
 }

@@ -13,52 +13,39 @@ class DossierPrisEnChargeNotification extends Notification implements ShouldQueu
 {
     use Queueable;
 
-    public $bien;
-    public $agent;
+    public function __construct(
+        public readonly Bien $bien,
+        public readonly User $agent,
+    ) {}
 
     /**
-     * Create a new notification instance.
-     */
-    public function __construct(Bien $bien, User $agent)
-    {
-        $this->bien = $bien;
-        $this->agent = $agent;
-    }
-
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
+     * La persistance DB est gérée par NotificationService.
+     * Ici on envoie uniquement l'email.
      */
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return ['mail'];
     }
 
-    /**
-     * Get the mail representation of the notification.
-     */
     public function toMail(object $notifiable): MailMessage
     {
+        $prenom   = $notifiable->first_name ?? $notifiable->name ?? '';
+        $nomAgent = trim(($this->agent->first_name ?? '') . ' ' . ($this->agent->last_name ?? ''))
+                    ?: ($this->agent->name ?? 'un agent');
+
         return (new MailMessage)
             ->subject('✅ Votre dossier est pris en charge — ' . $this->bien->titre)
-            ->greeting('Bonjour ' . $notifiable->name . ',')
-            ->line('Votre bien ' . $this->bien->titre . ' est maintenant pris en charge par notre agent ' . $this->agent->name . '.')
+            ->greeting("Bonjour {$prenom},")
+            ->line('Votre bien « ' . $this->bien->titre . ' » est maintenant pris en charge par ' . $nomAgent . '.')
             ->action('Voir mon bien', url('/biens/' . $this->bien->id))
             ->line('Notre agent reviendra vers vous très prochainement.');
     }
 
-    /**
-     * Get the array representation of the notification.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(object $notifiable): array
     {
         return [
-            'type' => 'dossier_pris_en_charge',
+            'type'    => 'dossier_pris_en_charge',
             'bien_id' => $this->bien->id,
-            'message' => 'Votre bien ' . $this->bien->titre . ' est maintenant pris en charge par notre agent ' . $this->agent->name . '.'
         ];
     }
 }

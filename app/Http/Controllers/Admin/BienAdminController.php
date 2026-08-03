@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\BienStatutChanged;
+use App\Events\DossierAssigneEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BienListResource;
 use App\Http\Resources\BienResource;
@@ -99,6 +101,7 @@ class BienAdminController extends Controller
             'valide'     => ['archive', 'rejete'],
             'rejete'     => ['valide'],
             'publie'     => ['archive', 'rejete'],
+            'retire'     => ['valide', 'archive'],  // Bien retiré par le propriétaire : l'admin peut le remettre valide ou l'archiver
             'archive'    => ['valide'],
         ];
 
@@ -205,6 +208,9 @@ class BienAdminController extends Controller
             ->withProperties(['ancien_statut' => $statutActuel, 'nouveau_statut' => $nouveauStatut])
             ->log("Statut du bien changé : {$statutActuel} → {$nouveauStatut}");
 
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        broadcast(new BienStatutChanged($bien->fresh()))->toOthers();
+
         return response()->json([
             'success' => true,
             'message' => "Statut mis à jour : {$nouveauStatut}.",
@@ -285,6 +291,9 @@ class BienAdminController extends Controller
                 emailBody:    $emailHtml,
             );
         }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        broadcast(new DossierAssigneEvent($bien->fresh(), $agentUser))->toOthers();
 
         return response()->json([
             'success' => true,

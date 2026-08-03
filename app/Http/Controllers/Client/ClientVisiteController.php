@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Events\VisiteStatutChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\CreneauVisite;
@@ -146,6 +147,13 @@ class ClientVisiteController extends Controller
                 "ImmoPro — Vérification confirmée : {$bien->titre}",
                 $html
             );
+        }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('[ClientVisiteController] Broadcast choisirCreneau échoué: ' . $e->getMessage());
         }
 
         return response()->json([
@@ -572,16 +580,54 @@ class ClientVisiteController extends Controller
                 Log::warning('[VisitePaiement] Notification client échouée : ' . $e->getMessage());
             }
 
-            // 5. Notifier l'agent assigné
+            // 5. Notifier l'agent assigné — in-app + email + push
             if ($bien->agent_id) {
                 try {
                     $agent = \App\Models\User::find($bien->agent_id);
                     if ($agent) {
+                        $nomClient   = trim("{$client->first_name} {$client->last_name}");
+                        $telClient   = $client->telephone ?? '—';
+                        $emailClient = $client->email ?? '—';
+
+                        // Infos propriétaire du bien (déposant)
+                        $proprio     = $bien->proprietaire;
+                        $nomProprio  = $proprio
+                            ? trim("{$proprio->first_name} {$proprio->last_name}")
+                            : ($bien->proprietaire_nom
+                                ? trim("{$bien->proprietaire_prenom} {$bien->proprietaire_nom}")
+                                : '—');
+                        $telProprio  = $proprio?->telephone ?? $bien->proprietaire_telephone ?? '—';
+
+                        $montantFormate = number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA';
+
+                        $emailHtml = \App\Services\EmailTemplateService::generic(
+                            titre: '🔔 Nouvelle demande de visite client',
+                            intro: "Un client vient de payer les frais de visite pour le bien « {$bien->titre} ». "
+                                 . "Connectez-vous à votre espace agent pour proposer des créneaux.",
+                            rows: [
+                                // ── Client demandeur ──────────────────────────
+                                ['icon' => '👤', 'label' => 'Client',           'value' => $nomClient],
+                                ['icon' => '📧', 'label' => 'Email client',     'value' => $emailClient],
+                                ['icon' => '📞', 'label' => 'Tél. client',      'value' => $telClient],
+                                // ── Bien concerné ─────────────────────────────
+                                ['icon' => '🏠', 'label' => 'Bien',             'value' => $bien->titre],
+                                ['icon' => '📍', 'label' => 'Adresse',          'value' => $bien->adresse ?? '—'],
+                                ['icon' => '💰', 'label' => 'Montant payé',     'value' => $montantFormate],
+                                // ── Propriétaire du bien ──────────────────────
+                                ['icon' => '🧑‍💼', 'label' => 'Propriétaire',    'value' => $nomProprio],
+                                ['icon' => '📱', 'label' => 'Tél. propriétaire','value' => $telProprio],
+                            ],
+                            outro: 'Rendez-vous sur votre tableau de bord ImmoPro → Visites pour proposer des créneaux au client.'
+                        );
+
                         $this->notifService->notify(
-                            $agent, 'visite_client_payee',
-                            'Visite client payée',
-                            "Un client a payé les frais de visite pour « {$bien->titre} ». Planifiez la visite.",
-                            ['visite_id' => $visite->id, 'bien_id' => $bienId]
+                            $agent,
+                            'visite_client_payee',
+                            '🔔 Nouvelle demande de visite — ' . $bien->titre,
+                            "{$nomClient} a payé les frais de visite pour « {$bien->titre} ». Proposez des créneaux.",
+                            ['visite_id' => $visite->id, 'bien_id' => $bienId, 'client_nom' => $nomClient],
+                            "ImmoPro — Nouvelle demande de visite : {$bien->titre}",
+                            $emailHtml
                         );
                     }
                 } catch (\Throwable $e) {

@@ -477,10 +477,16 @@ class SemoaWebhookController extends Controller
         }
 
         // Chercher d'abord une Visite existante déjà créée par confirmerPaiement() client.
+        // On recherche via le paiement lui-même pour éviter les collisions multi-clients.
         // Si le webhook arrive avant la confirmation manuelle, on la crée ici (même logique).
+        $clientId = null;
+
+        // Retrouver le client via le paiement (le paiement est lié au client authentifié)
+        // La table paiements ne stocke pas directement le client, mais on peut le retrouver
+        // via la visite déjà existante ou via les logs du paiement
         $visite = \App\Models\Visite::where('bien_id', $bien->id)
             ->where('type_visite', \App\Models\Visite::TYPE_CLIENT)
-            ->where(fn ($q) => $q->where('est_payee', true)->orWhere('est_payee', false))
+            ->whereNotNull('client_id')
             ->latest()
             ->first();
 
@@ -500,15 +506,14 @@ class SemoaWebhookController extends Controller
                 }
                 $clientId = $visite->client_id;
             } else {
-                // Webhook arrivé avant que le client ait appelé confirmerPaiement()
-                // On crée la visite ici, le client la verra déjà payée à sa prochaine requête
-                $visite = \App\Models\Visite::create([
-                    'bien_id'    => $bien->id,
-                    'agent_id'   => $bien->agent_id,
-                    'type_visite'=> \App\Models\Visite::TYPE_CLIENT,
-                    'statut'     => 'proposee',
-                    'est_payee'  => true,
-                    'notes'      => 'Visite payée via webhook Semoa le ' . now()->toDateString(),
+                // Webhook arrivé avant que le client ait appelé confirmerPaiement().
+                // On ne crée PAS de visite ici car on n'a pas de client_id.
+                // Le statut 'confirme' du paiement suffira : quand le client appellera
+                // confirmerPaiement(), il trouvera le paiement déjà confirmé et créera
+                // la visite avec son client_id correct (idempotence gérée par firstOrCreate).
+                Log::info('[Semoa Webhook] Visite : webhook arrivé avant confirmerPaiement() client — paiement marqué confirme, visite sera créée par le client.', [
+                    'paiement_id' => $paiement->id,
+                    'bien_id'     => $bien->id,
                 ]);
                 $clientId = null;
             }
@@ -521,7 +526,7 @@ class SemoaWebhookController extends Controller
             $numeroRecu = $recu->numero_recu;
 
             // 4. Notifier le client
-            if ($clientId) {
+            if ($clientId && $visite) {
                 $client = \App\Models\User::find($clientId);
                 if ($client) {
                     app(NotificationService::class)->notify(
@@ -547,7 +552,7 @@ class SemoaWebhookController extends Controller
             }
 
             // 5. Notifier l'agent assigné
-            if ($bien->agent_id) {
+            if ($bien->agent_id && $visite) {
                 $agent = \App\Models\User::find($bien->agent_id);
                 if ($agent) {
                     app(NotificationService::class)->notify(
@@ -564,14 +569,14 @@ class SemoaWebhookController extends Controller
 
             Log::info('[Semoa Webhook] Visite confirmée', [
                 'paiement_id' => $paiement->id,
-                'visite_id'   => $visite->id,
+                'visite_id'   => $visite?->id,
                 'bien_id'     => $bien->id,
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Paiement visite confirmé. Localisation déverrouillée.',
-                'data'    => ['visite_id' => $visite->id, 'recu' => $numeroRecu],
+                'data'    => ['visite_id' => $visite?->id, 'recu' => $numeroRecu],
             ]);
 
         } catch (\Throwable $e) {

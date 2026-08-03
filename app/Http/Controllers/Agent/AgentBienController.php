@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Agent;
 
+use App\Events\BienStatutChanged;
+use App\Events\DossierAssigneEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BienListResource;
 use App\Http\Resources\BienResource;
@@ -270,6 +272,14 @@ class AgentBienController extends Controller
             }
         } catch (\Throwable $e) {
             Log::warning('[AgentBienController] Erreur notification admin claim: ' . $e->getMessage());
+        }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new DossierAssigneEvent($updated->fresh(), $request->user()))->toOthers();
+            broadcast(new BienStatutChanged($updated->fresh()))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('[AgentBienController] Erreur broadcast claim: ' . $e->getMessage());
         }
 
         return response()->json([

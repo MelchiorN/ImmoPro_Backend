@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Agent;
 
+use App\Events\VisiteStatutChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\CreneauVisite;
@@ -456,6 +457,13 @@ class AgentVisiteController extends Controller
             );
         }
 
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')))->toOthers();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[AgentVisiteController] Broadcast update échoué: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Visite mise à jour.',
@@ -463,30 +471,60 @@ class AgentVisiteController extends Controller
         ]);
     }
 
-
     // ─────────────────────────────────────────────────────────────────────
     // SECTION 4 : VISITES CLIENT (acheteur)
     // ─────────────────────────────────────────────────────────────────────
 
-    /** GET /api/agent/visites/clients */
+    /**
+     * GET /api/agent/visites/clients
+     * Liste toutes les visites client de l'agent (tous statuts actifs).
+     * Supporte le filtre ?statut=proposee|en_attente_client|confirmee|annulee
+     */
     public function visitesClients(Request $request): JsonResponse
     {
-        $agent = $request->user();
+        $agent  = $request->user();
+        $statut = $request->query('statut');
 
-        $visites = Visite::with(['bien', 'client'])
+        $query = Visite::with(['bien.proprietaire', 'bien.medias', 'client'])
             ->where('agent_id', $agent->id)
-            ->where('type_visite', Visite::TYPE_CLIENT)
-            ->whereIn('statut', [
+            ->where('type_visite', Visite::TYPE_CLIENT);
+
+        if ($statut) {
+            $query->where('statut', $statut);
+        } else {
+            $query->whereIn('statut', [
                 Visite::STATUT_PROPOSEE,
                 Visite::STATUT_EN_ATTENTE_CLIENT,
                 Visite::STATUT_INDISPONIBLE,
                 Visite::STATUT_CONFIRMEE,
-            ])
-            ->orderByDesc('created_at')
+            ]);
+        }
+
+        $visites = $query->orderByDesc('created_at')
             ->get()
             ->map(fn ($v) => $this->formatVisiteClient($v));
 
         return response()->json(['success' => true, 'data' => $visites]);
+    }
+
+    /**
+     * GET /api/agent/visites/clients/{id}
+     * Détail complet d'une visite client : infos client, bien, proprio, créneaux.
+     */
+    public function showVisiteClient(Request $request, string $visiteId): JsonResponse
+    {
+        $agent = $request->user();
+
+        $visite = Visite::with(['bien.proprietaire', 'bien.medias', 'client'])
+            ->where('id', $visiteId)
+            ->where('agent_id', $agent->id)
+            ->where('type_visite', Visite::TYPE_CLIENT)
+            ->firstOrFail();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $this->formatVisiteClient($visite),
+        ]);
     }
 
     /**
@@ -586,10 +624,17 @@ class AgentVisiteController extends Controller
             );
         }
 
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')))->toOthers();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[AgentVisiteController] Broadcast créneaux client échoué: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => "{$nb} créneau(x) proposé(s). Le client sera notifié.",
-            'data'    => $this->formatVisiteClient($visite->fresh(['bien', 'client'])),
+            'data'    => $this->formatVisiteClient($visite->fresh(['bien.proprietaire', 'bien.medias', 'client'])),
         ]);
     }
 
@@ -718,26 +763,61 @@ class AgentVisiteController extends Controller
 
     private function formatVisiteClient(Visite $v): array
     {
+        $bien   = $v->bien;
+        $client = $v->client;
+
+        // Photo principale du bien
+        $photoPrincipale = $bien?->medias()
+            ->where('type', 'photo')
+            ->orderByDesc('est_principale')
+            ->orderBy('ordre')
+            ->first();
+
+        // Infos propriétaire du bien
+        $proprio    = $bien?->proprietaire;
+        $nomProprio = null;
+        $telProprio = null;
+        if ($proprio) {
+            $nomProprio = trim("{$proprio->first_name} {$proprio->last_name}");
+            $telProprio = $proprio->telephone ?? null;
+        } elseif ($bien) {
+            $nomProprio = trim(($bien->proprietaire_prenom ?? '') . ' ' . ($bien->proprietaire_nom ?? '')) ?: null;
+            $telProprio = $bien->proprietaire_telephone ?? null;
+        }
+
         return [
-            'id'                  => $v->id,
-            'bien_id'             => $v->bien_id,
-            'bien_titre'          => $v->bien?->titre,
-            'bien_adresse'        => $v->bien?->adresse,
-            'date_visite'         => $v->date_visite?->toIso8601String(),
-            'duree_minutes'       => $v->duree_minutes,
-            'statut'              => $v->statut,
-            'est_payee'           => $v->est_payee,
-            'creneaux_agent'      => $v->creneaux_agent ?? [],
-            'notes'               => $v->notes,
-            'nb_indisponibilites' => $v->nb_indisponibilites ?? 0,
-            'note_indisponibilite'=> $v->note_indisponibilite,
-            'client'              => $v->client ? [
-                'id'    => $v->client->id,
-                'nom'   => trim("{$v->client->first_name} {$v->client->last_name}"),
-                'email' => $v->client->email,
-                'phone' => $v->client->phone ?? null,
+            'id'                    => $v->id,
+            'bien_id'               => $v->bien_id,
+            'bien_titre'            => $bien?->titre,
+            'bien_adresse'          => $bien?->adresse,
+            'bien_type'             => $bien?->type_bien,
+            'bien_type_transaction' => $bien?->type_transaction,
+            'bien_prix'             => $bien ? (float) $bien->prix : null,
+            'bien_photo'            => $photoPrincipale?->url,
+            'date_visite'           => $v->date_visite?->toIso8601String(),
+            'duree_minutes'         => $v->duree_minutes,
+            'statut'                => $v->statut,
+            'est_payee'             => $v->est_payee,
+            'creneaux_agent'        => $v->creneaux_agent ?? [],
+            'notes'                 => $v->notes,
+            'nb_indisponibilites'   => $v->nb_indisponibilites ?? 0,
+            'note_indisponibilite'  => $v->note_indisponibilite,
+            // Infos client demandeur
+            'client'                => $client ? [
+                'id'        => $client->id,
+                'nom'       => trim("{$client->first_name} {$client->last_name}"),
+                'email'     => $client->email,
+                'telephone' => $client->telephone ?? null,
+                'photo'     => $client->profile_picture ?? null,
             ] : null,
-            'created_at'          => $v->created_at->toIso8601String(),
+            // Infos propriétaire du bien
+            'proprietaire'          => [
+                'id'        => $proprio?->id,
+                'nom'       => $nomProprio,
+                'email'     => $proprio?->email ?? $bien?->proprietaire_email,
+                'telephone' => $telProprio,
+            ],
+            'created_at'            => $v->created_at->toIso8601String(),
         ];
     }
 

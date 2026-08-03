@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Events\BienStatutChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Services\BienDescriptionService;
@@ -98,6 +99,7 @@ class ProprietaireBienController extends Controller
                 'en_verification' => ($counts['en_attente'] ?? 0) + ($counts['en_cours'] ?? 0),
                 'publie'          => $counts['publie']          ?? 0,
                 'rejete'          => $counts['rejete']          ?? 0,
+                'retire'          => $counts['retire']          ?? 0,
                 'archive'         => $counts['archive']         ?? 0,
                 'brouillon'       => $counts['brouillon']       ?? 0,
                 'has_biens'       => $total > 0,
@@ -153,9 +155,83 @@ class ProprietaireBienController extends Controller
             Log::warning('[ProprietaireBien] Notification publication échouée: ' . $e->getMessage());
         }
 
+        // ── Broadcast temps réel — notifier admins et agents ──────────────────
+        try {
+            broadcast(new BienStatutChanged($bien->fresh()))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('[ProprietaireBien] Broadcast publication échouée: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Votre bien est maintenant publié sur la plateforme ! 🎉',
+            'data'    => $this->formatBienDetail($bien->fresh(['medias'])),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // POST /api/proprietaire/biens/{id}/retirer
+    // Le propriétaire retire son bien de la publication (motif obligatoire).
+    // Passe le statut de 'publie' → 'retire' (dépublié, toujours en base).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function retirer(Request $request, string $id): JsonResponse
+    {
+        $request->validate([
+            'motif' => 'required|string|min:10|max:300',
+        ], [
+            'motif.required' => 'Le motif de retrait est obligatoire.',
+            'motif.min'      => 'Le motif doit contenir au moins 10 caractères.',
+            'motif.max'      => 'Le motif ne peut pas dépasser 300 caractères.',
+        ]);
+
+        $bien = Bien::where('user_id', $request->user()->id)
+            ->where('statut', 'publie')
+            ->findOrFail($id);
+
+        $bien->update([
+            'statut'     => 'retire',
+            'note_admin' => '[RETRAIT PROPRIÉTAIRE] ' . $request->input('motif'),
+        ]);
+
+        // ── Notifier le propriétaire ──────────────────────────────────────────
+        try {
+            $user      = $request->user();
+            $emailBody = EmailTemplateService::generic(
+                titre: '📦 Publication retirée',
+                intro: "Votre demande de retrait a bien été prise en compte. Votre annonce n'est plus visible sur la plateforme, mais votre bien est conservé dans votre espace.",
+                rows: [
+                    ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
+                    ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
+                    ['icon' => '📝', 'label' => 'Motif',   'value' => $request->input('motif')],
+                    ['icon' => '👁️', 'label' => 'Statut',  'value' => 'Retiré de la publication'],
+                ],
+                outro: 'Votre bien est toujours enregistré. Vous pouvez contacter le support si vous souhaitez le republier.'
+            );
+
+            app(NotificationService::class)->notify(
+                $user,
+                'bien_retire',
+                'Publication retirée',
+                "Votre bien \"{$bien->titre}\" a été retiré de la publication. Il n'est plus visible sur la plateforme.",
+                ['bien_id' => (string) $bien->id],
+                'Publication retirée — ImmoPro',
+                $emailBody,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[ProprietaireBien] Notification retrait échouée: ' . $e->getMessage());
+        }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new BienStatutChanged($bien->fresh()))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('[ProprietaireBien] Broadcast retrait échouée: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Votre annonce a été retirée de la publication. Elle reste enregistrée dans votre espace.',
             'data'    => $this->formatBienDetail($bien->fresh(['medias'])),
         ]);
     }
@@ -351,7 +427,8 @@ class ProprietaireBienController extends Controller
         return match ($statut) {
             'en_cours'   => 'en_verification',
             'en_attente' => 'en_attente',
-            'valide'     => 'valide',   // Approuvé par admin, en attente de publication
+            'valide'     => 'valide',
+            'retire'     => 'retire',
             default      => $statut,
         };
     }

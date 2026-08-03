@@ -137,6 +137,7 @@ class StatisticsController extends Controller
                 'en_verification' => $biensParStatut['en_verification'] ?? 0,
                 'rejete' => $biensParStatut['rejete'] ?? 0,
                 'valide' => $biensParStatut['valide'] ?? 0,
+                'retire' => $biensParStatut['retire'] ?? 0,
                 'archive' => $biensParStatut['archive'] ?? 0,
                 'brouillon' => $biensParStatut['brouillon'] ?? 0,
             ],

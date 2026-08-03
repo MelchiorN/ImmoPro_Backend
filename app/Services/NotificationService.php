@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\NouvelleNotificationEvent;
 use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
@@ -62,6 +63,15 @@ class NotificationService
                 'lu'      => false,
                 'data'    => $data,
             ]);
+
+            // ── Broadcast temps réel vers le destinataire ─────────────────────
+            broadcast(new NouvelleNotificationEvent(
+                userId:  $user->id,
+                type:    $type,
+                titre:   $titre,
+                message: $message,
+                data:    $data,
+            ));
         } catch (\Throwable $e) {
             Log::warning("[NotificationService] Échec in-app : {$e->getMessage()}");
         }

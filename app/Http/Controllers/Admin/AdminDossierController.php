@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\BienStatutChanged;
+use App\Events\DossierAssigneEvent;
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\User;
@@ -77,6 +79,9 @@ class AdminDossierController extends Controller
         foreach ($admins as $adm) {
             $adm->notify(new DossierAssigneAdminNotification($bien, $agent));
         }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        broadcast(new DossierAssigneEvent($bien->fresh(), $agent))->toOthers();
 
         return response()->json([
             'success' => true,

@@ -34,6 +34,7 @@ use App\Http\Controllers\Client\ProprietaireBienController;
 use App\Http\Controllers\Client\BrouillonBienController;
 use App\Http\Controllers\Admin\DocumentLegalController;
 use App\Http\Controllers\SemoaWebhookController;
+use App\Http\Controllers\Messagerie\ConversationController;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health check (public)
@@ -78,6 +79,8 @@ Route::prefix('legal')->group(function () {
     Route::get('/{slug}', [DocumentLegalController::class, 'showPublic']);
 });
 
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Config formulaire publication — lecture publique (mobile + web sans auth)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,6 +118,12 @@ Route::prefix('biens')->group(function () {
 // ─────────────────────────────────────────────────────────────────────────────
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    // ── Authentification WebSocket (Reverb) — channels privés ────────────────
+    // Requis pour que Nuxt Echo et Flutter Pusher puissent s'abonner aux
+    // channels private-admin, private-agent.{id}, private-user.{id}
+    // Note : pas de middleware redondant, le groupe parent auth:sanctum suffit
+    \Illuminate\Support\Facades\Broadcast::routes();
 
     // ── Profil & déconnexion — Admin + Agent ──────────────────────────────────
     Route::middleware('role:admin,agent')->group(function () {
@@ -160,7 +169,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/stats', [ProprietaireBienController::class, 'stats']);
             Route::get('/',      [ProprietaireBienController::class, 'index']);
             Route::get('/{id}',  [ProprietaireBienController::class, 'show']);
-            Route::post('/{id}/publier', [ProprietaireBienController::class, 'publier']);
+            Route::post('/{id}/publier',  [ProprietaireBienController::class, 'publier']);
+            Route::post('/{id}/retirer',  [ProprietaireBienController::class, 'retirer']);
         });
 
         // ── Brouillons de publication (bien en brouillon) ─────────────────────
@@ -478,8 +488,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('role:agent')->prefix('agent/visites')->group(function () {
         Route::patch('/{id}',                          [AgentVisiteController::class, 'update']);
-        // Visites clients
+        // ── Visites client (acheteur/locataire) ─────────────────────────────────
+        // Liste avec filtre optionnel ?statut=
         Route::get  ('/clients',                       [AgentVisiteController::class, 'visitesClients']);
+        // Détail complet d'une visite client
+        Route::get  ('/clients/{id}',                  [AgentVisiteController::class, 'showVisiteClient']);
+        // Proposer des créneaux au client
         Route::post ('/{id}/proposer-creneaux',        [AgentVisiteController::class, 'proposerCreneauxClient']);
     });
 
@@ -526,4 +540,32 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::middleware('role:admin')->get('/admin/biens/{id}/workflow', [BienAdminController::class, 'workflow']);
     Route::middleware('role:agent')->get('/agent/biens/{id}/workflow', [AgentBienController::class, 'workflow']);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Messagerie Agent ↔ Client
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Routes accessibles par agent ET client
+    Route::middleware('role:agent,client')->prefix('messagerie')->group(function () {
+        // Lister ses conversations (triées par dernier message)
+        Route::get  ('/conversations',                                  [ConversationController::class, 'index']);
+        // Ouvrir ou récupérer une conversation
+        Route::post ('/conversations',                                  [ConversationController::class, 'store']);
+        // Charger les messages d'une conversation (avec pagination)
+        Route::get  ('/conversations/{id}/messages',                    [ConversationController::class, 'messages']);
+        // Envoyer un message
+        Route::post ('/conversations/{id}/messages',                    [ConversationController::class, 'sendMessage']);
+        // Supprimer un message (pour moi ou pour tous) — ne supprime pas de la BDD
+        Route::delete('/messages/{messageId}',                          [ConversationController::class, 'deleteMessage']);
+        // ACK délivrance — le destinataire confirme avoir reçu le message en temps réel
+        Route::post  ('/messages/{messageId}/delivre',                  [ConversationController::class, 'marquerDelivre']);
+    });
+
+    // Vue admin : historique complet des conversations (sans filtre de suppression)
+    Route::middleware('role:admin')->prefix('admin/messagerie')->group(function () {
+        // Liste toutes les conversations
+        Route::get('/conversations',                                     [ConversationController::class, 'adminIndex']);
+        // Détail complet d'une conversation avec tous les messages (y compris supprimés)
+        Route::get('/conversations/{id}/messages',                      [ConversationController::class, 'adminMessages']);
+    });
 });

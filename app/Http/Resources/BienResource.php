@@ -114,7 +114,11 @@ class BienResource extends JsonResource
         if (! $user) {
             return false;
         }
-        return $user->id === $this->user_id
-            || in_array($user->role, ['admin', 'agent']);
+        // Propriétaire du bien, admin et agent voient toujours les coordonnées
+        if ($user->id === $this->user_id || in_array($user->role, ['admin', 'agent'])) {
+            return true;
+        }
+        // Un client ayant payé les frais de visite voit aussi les coordonnées du propriétaire
+        return $this->resource->hasPaidVisit($user);
     }
 }

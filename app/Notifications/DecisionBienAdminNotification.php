@@ -3,52 +3,32 @@
 namespace App\Notifications;
 
 use App\Models\Bien;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-class DecisionBienAdminNotification extends Notification implements ShouldQueue
+/**
+ * Notification admin quand un agent approuve ou rejette un bien.
+ *
+ * ⚠️  Canal 'database' natif DÉSACTIVÉ — la persistance en DB est gérée
+ *     par NotificationService qui remplit les colonnes titre/message/type
+ *     de la table notifications custom.
+ *     Cette classe n'existe plus que comme DTO pour transporter les données
+ *     vers les endroits qui font encore ->notify().
+ */
+class DecisionBienAdminNotification extends Notification
 {
-    use Queueable;
+    public function __construct(
+        public readonly Bien   $bien,
+        public readonly string $decision, // 'approuve' | 'rejete'
+    ) {}
 
-    public $bien;
-    public $decision; // 'approuve' ou 'rejete'
-
-    /**
-     * Create a new notification instance.
-     */
-    public function __construct(Bien $bien, string $decision)
-    {
-        $this->bien = $bien;
-        $this->decision = $decision;
-    }
-
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
+    /** Aucun canal natif — on ne passe plus par la queue Laravel. */
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return [];
     }
 
-    /**
-     * Get the array representation of the notification.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(object $notifiable): array
     {
-        $msg = $this->decision === 'approuve' 
-            ? '✅ Le bien ' . $this->bien->titre . ' a été approuvé par son agent.'
-            : '❌ Le bien ' . $this->bien->titre . ' a été rejeté par son agent.';
-
-        return [
-            'type' => 'decision_bien_admin',
-            'decision' => $this->decision,
-            'bien_id' => $this->bien->id,
-            'message' => $msg
-        ];
+        return [];
     }
 }

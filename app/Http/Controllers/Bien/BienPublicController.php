@@ -112,10 +112,16 @@ class BienPublicController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/biens/{id}
     // Détail public d'un bien publié
+    // L'injection de Request + tentative d'auth silencieuse permet à BienResource
+    // de déverrouiller latitude/longitude pour les clients ayant payé la visite.
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
+        // Tente de résoudre l'utilisateur depuis le token Bearer si présent,
+        // sans bloquer les requêtes anonymes (pas de 401 si token absent).
+        \Auth::shouldUse('sanctum');
+
         $bien = Bien::with(['medias', 'documents', 'proprietaire', 'agent', 'categorie'])
             ->publie()
             ->findOrFail($id);

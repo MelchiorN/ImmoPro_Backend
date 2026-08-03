@@ -337,10 +337,12 @@ class BienController extends Controller
 
     public function update(UpdateBienRequest $request, Bien $bien): JsonResponse
     {
-        if (in_array($bien->statut, ['valide', 'publie', 'archive'])) {
+        // Un bien publié, validé ou archivé ne peut pas être modifié via cette route.
+        // Un bien 'retire' reste bloqué aussi (il faut contacter le support pour republier).
+        if (in_array($bien->statut, ['valide', 'publie', 'retire', 'archive'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Une annonce validée, publiée ou archivée ne peut plus être modifiée.',
+                'message' => 'Une annonce validée, publiée, retirée ou archivée ne peut plus être modifiée.',
             ], 422);
         }
 
@@ -377,7 +379,7 @@ class BienController extends Controller
         if ($bien->statut === 'publie') {
             return response()->json([
                 'success' => false,
-                'message' => 'Un bien publié ne peut pas être supprimé. Archivez-le d\'abord.',
+                'message' => 'Un bien publié ne peut pas être supprimé. Retirez-le de la publication d\'abord.',
             ], 422);
         }
 

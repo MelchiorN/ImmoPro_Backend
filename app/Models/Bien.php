@@ -195,14 +195,13 @@ class Bien extends Model
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /** Statuts possibles. */
-    public const STATUTS = ['brouillon', 'en_attente', 'en_cours', 'valide', 'publie', 'rejete', 'archive'];
+    public const STATUTS = ['brouillon', 'en_attente', 'en_cours', 'valide', 'publie', 'rejete', 'retire', 'archive'];
 
     /** Vrai si le bien peut encore être modifié par le propriétaire. */
     public function estModifiable(): bool
     {
         return $this->statut !== 'archive';
     }
-
     /** Vrai si le bien est en cours de vérification par un agent. */
     public function estEnCours(): bool
     {
