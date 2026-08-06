@@ -300,7 +300,6 @@ class AgentBienController extends Controller
 
         $bien = Bien::where('id', $id)
                     ->where('agent_id', $agentId)
-                    ->whereIn('statut', ['en_cours', 'en_attente'])
                     ->firstOrFail();
 
         $validated = $request->validated();
@@ -440,7 +439,6 @@ class AgentBienController extends Controller
     {
         $bien = Bien::where('id', $id)
             ->where('agent_id', $request->user()->id)
-            ->whereIn('statut', ['en_cours', 'en_attente'])
             ->firstOrFail();
 
         $request->validate([
@@ -517,7 +515,6 @@ class AgentBienController extends Controller
     {
         $bien = Bien::where('id', $id)
             ->where('agent_id', $request->user()->id)
-            ->whereIn('statut', ['en_cours', 'en_attente'])
             ->firstOrFail();
 
         $request->validate([

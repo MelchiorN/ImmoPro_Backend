@@ -127,20 +127,48 @@ class AdminStatsController extends Controller
             ->groupBy('mois')
             ->pluck('total', 'mois');
 
+        // Visites par mois (Demandes de visite)
+        $visites = Visite::select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(created_at, '%Y-%m') as mois"),
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as total')
+            )
+            ->where('created_at', '>=', \Carbon\Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Abonnements par mois
+        $abonnements = \App\Models\UserAbonnement::select(
+                \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(created_at, '%Y-%m') as mois"),
+                \Illuminate\Support\Facades\DB::raw('COUNT(*) as total')
+            )
+            ->where('created_at', '>=', \Carbon\Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
         $labels       = [];
         $dataSoum     = [];
         $dataPub      = [];
         $dataRejets   = [];
         $dataInscr    = [];
+        $dataVisites  = [];
+        $dataAbos     = [];
 
         foreach ($months as $date) {
             $key = $date->format('Y-m');
             $labels[]     = $date->locale('fr')->isoFormat('MMM YY');
-            $dataSoum[]   = $soumissions[$key]  ?? 0;
-            $dataPub[]    = $publications[$key] ?? 0;
-            $dataRejets[] = $rejets[$key]        ?? 0;
+            $dataSoum[]   = $soumis[$key]  ?? 0;
+            $dataPub[]    = $publies[$key] ?? 0;
+            $dataRejets[] = $rejetes[$key]        ?? 0;
             $dataInscr[]  = $inscriptions[$key]  ?? 0;
+            $dataVisites[]= $visites[$key] ?? 0;
+            $dataAbos[]   = $abonnements[$key] ?? 0;
         }
+
+        // Répartition par type de transaction
+        $parTransaction = Bien::select('type_transaction', DB::raw('COUNT(*) as total'))
+            ->whereNotNull('type_transaction')
+            ->groupBy('type_transaction')
+            ->pluck('total', 'type_transaction');
 
         // Répartition par type de bien (top 6)
         $parTypeBien = Bien::select('type_bien', DB::raw('COUNT(*) as total'))
@@ -176,7 +204,10 @@ class AdminStatsController extends Controller
                 'publications' => $dataPub,
                 'rejets'       => $dataRejets,
                 'inscriptions' => $dataInscr,
+                'visites'      => $dataVisites,
+                'abonnements'  => $dataAbos,
                 'par_type_bien'=> $parTypeBien,
+                'par_transaction'=> $parTransaction,
                 'biens_carte'  => $biensCarte,
             ],
         ]);

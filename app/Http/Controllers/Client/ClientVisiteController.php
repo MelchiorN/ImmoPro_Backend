@@ -906,29 +906,46 @@ class ClientVisiteController extends Controller
     // ── GET /api/client/visites ────────────────────────────────────────────
     // Historique des visites du client (payées et autres)
     // ─────────────────────────────────────────────────────────────────────────
-    public function mesVisites(Request $request): JsonResponse    {
+    public function mesVisites(Request $request): JsonResponse
+    {
         $client = $request->user();
 
-        $visites = Visite::with(['bien.medias'])
+        $visites = Visite::with(['bien.medias', 'bien.proprietaire'])
             ->where('client_id', $client->id)
             ->orderByDesc('created_at')
             ->get()
-            ->map(fn ($v) => [
-                'id'               => $v->id,
-                'bien_id'          => $v->bien_id,
-                'bien_titre'       => $v->bien?->titre,
-                'bien_adresse'     => $v->bien?->adresse,
-                'bien_photo'       => $v->bien?->medias
-                    ?->where('est_principale', true)->first()?->url
-                    ?? $v->bien?->medias?->first()?->url,
-                'date_visite'      => $v->date_visite?->toIso8601String(),
-                'statut'           => $v->statut,
-                'est_payee'        => $v->est_payee,
-                // Créneaux proposés par l'agent (le client doit en choisir un)
-                'creneaux_agent'      => $v->creneaux_agent,
-                'duree_minutes'       => $v->duree_minutes,
-                'nb_indisponibilites' => $v->nb_indisponibilites ?? 0,
-                'created_at'          => $v->created_at->toIso8601String(),            ]);
+            ->map(function ($v) {
+                $proprio = $v->bien?->proprietaire;
+                $nomProprio = $proprio
+                    ? trim("{$proprio->first_name} {$proprio->last_name}")
+                    : ($v->bien?->proprietaire_nom
+                        ? trim("{$v->bien->proprietaire_prenom} {$v->bien->proprietaire_nom}")
+                        : null);
+                $telProprio = $proprio?->telephone ?? $v->bien?->proprietaire_telephone;
+                $emailProprio = $proprio?->email ?? $v->bien?->proprietaire_email;
+
+                return [
+                    'id'               => $v->id,
+                    'bien_id'          => $v->bien_id,
+                    'bien_titre'       => $v->bien?->titre,
+                    'bien_adresse'     => $v->bien?->adresse,
+                    'bien_photo'       => $v->bien?->medias
+                        ?->where('est_principale', true)->first()?->url
+                        ?? $v->bien?->medias?->first()?->url,
+                    'date_visite'      => $v->date_visite?->toIso8601String(),
+                    'statut'           => $v->statut,
+                    'est_payee'        => $v->est_payee,
+                    // Coordonnées du propriétaire (visibles si payée)
+                    'proprietaire_nom'       => $v->est_payee ? $nomProprio : null,
+                    'proprietaire_telephone' => $v->est_payee ? $telProprio : null,
+                    'proprietaire_email'     => $v->est_payee ? $emailProprio : null,
+                    // Créneaux proposés par l'agent (le client doit en choisir un)
+                    'creneaux_agent'      => $v->creneaux_agent,
+                    'duree_minutes'       => $v->duree_minutes,
+                    'nb_indisponibilites' => $v->nb_indisponibilites ?? 0,
+                    'created_at'          => $v->created_at->toIso8601String(),
+                ];
+            });
 
         return response()->json(['success' => true, 'data' => $visites]);
     }

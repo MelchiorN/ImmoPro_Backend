@@ -17,9 +17,10 @@ class BienResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $user   = $request->user();
-        $canSee = $this->canSeeAdminNote($request);
-        $hasGps = $this->resource->hasPaidVisit($user);
+        $user           = $request->user();
+        $canSee         = $this->canSeeAdminNote($request);
+        $hasGps         = $this->resource->hasPaidVisit($user);
+        $canSeeProprio  = $canSee || $hasGps;
 
         $descriptionService = app(BienDescriptionService::class);
 
@@ -62,24 +63,24 @@ class BienResource extends JsonResource
             // Note admin (visible pour le propriétaire, admin, agent)
             'note_admin'       => $this->when($canSee, $this->note_admin),
 
-            // Identité du déposant (visible pour proprio, admin, agent)
+            // Identité du déposant (visible pour proprio, admin, agent et client ayant payé la visite)
             'role_deposant'            => $this->when($canSee, $this->role_deposant),
-            'proprietaire_nom'         => $this->when($canSee, $this->proprietaire_nom),
-            'proprietaire_prenom'      => $this->when($canSee, $this->proprietaire_prenom),
+            'proprietaire_nom'         => $this->when($canSeeProprio, $this->proprietaire_nom ?? $this->proprietaire?->last_name),
+            'proprietaire_prenom'      => $this->when($canSeeProprio, $this->proprietaire_prenom ?? $this->proprietaire?->first_name),
             'proprietaire_sexe'        => $this->when($canSee, $this->proprietaire_sexe),
             'proprietaire_nationalite' => $this->when($canSee, $this->proprietaire_nationalite),
-            'proprietaire_telephone'   => $this->when($canSee, $this->proprietaire_telephone),
-            'proprietaire_email'       => $this->when($canSee, $this->proprietaire_email),
+            'proprietaire_telephone'   => $this->when($canSeeProprio, $this->proprietaire_telephone ?? $this->proprietaire?->telephone),
+            'proprietaire_email'       => $this->when($canSeeProprio, $this->proprietaire_email ?? $this->proprietaire?->email),
             'proprietaire_adresse'     => $this->when($canSee, $this->proprietaire_adresse),
 
             // Propriétaire du compte
-            'proprietaire'     => $this->whenLoaded('proprietaire', fn () => [
+            'proprietaire'     => $this->when($canSeeProprio, fn () => $this->proprietaire ? [
                 'id'         => $this->proprietaire->id,
                 'first_name' => $this->proprietaire->first_name,
                 'last_name'  => $this->proprietaire->last_name,
                 'email'      => $this->proprietaire->email,
                 'telephone'  => $this->proprietaire->telephone,
-            ]),
+            ] : null),
 
             // Agent assigné
             'agent_id'         => $this->agent_id,
