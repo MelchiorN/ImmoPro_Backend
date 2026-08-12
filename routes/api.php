@@ -35,6 +35,7 @@ use App\Http\Controllers\Client\BrouillonBienController;
 use App\Http\Controllers\Admin\DocumentLegalController;
 use App\Http\Controllers\SemoaWebhookController;
 use App\Http\Controllers\Messagerie\ConversationController;
+use App\Http\Controllers\Ai\AiController;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health check (public)
@@ -265,6 +266,7 @@ Route::middleware('auth:sanctum')->group(function () {
    
 
     Route::middleware('role:admin')->prefix('admin/biens')->group(function () {
+        Route::get  ('/counts',        [BienAdminController::class, 'counts']);
         Route::get  ('/',              [BienAdminController::class, 'index']);
         Route::get  ('/{id}',          [BienAdminController::class, 'show']);
         Route::patch('/{id}/statut',   [BienAdminController::class, 'updateStatut']);
@@ -405,11 +407,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Gestion des utilisateurs clients (admin) ───────────────────────────────────────
     Route::middleware('role:admin')->prefix('admin/users')->group(function () {
-        Route::get  ('/stats',          [AdminUserController::class, 'stats']);
-        Route::get  ('/',               [AdminUserController::class, 'index']);
-        Route::get  ('/{id}',           [AdminUserController::class, 'show']);
-        Route::patch('/{id}/status',    [AdminUserController::class, 'updateStatus']);
-        Route::get  ('/{id}/historique',[AdminUserController::class, 'historique']);
+        Route::get  ('/stats',              [AdminUserController::class, 'stats']);
+        Route::get  ('/',                   [AdminUserController::class, 'index']);
+        Route::get  ('/{id}',               [AdminUserController::class, 'show']);
+        Route::patch('/{id}/status',        [AdminUserController::class, 'updateStatus']);
+        Route::get  ('/{id}/historique',    [AdminUserController::class, 'historique']);
+        Route::get  ('/{id}/stats/agent',   [AdminUserController::class, 'agentStats']);
+        Route::get  ('/{id}/stats/client',  [AdminUserController::class, 'clientStats']);
         // Surcharge du quota gratuit d'un utilisateur spécifique
         Route::patch('/{id}/essais-gratuits', [ConfigPublicationController::class, 'setEssaisGratuits']);
     });
@@ -567,5 +571,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/conversations',                                     [ConversationController::class, 'adminIndex']);
         // Détail complet d'une conversation avec tous les messages (y compris supprimés)
         Route::get('/conversations/{id}/messages',                      [ConversationController::class, 'adminMessages']);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Assistant IA Gemini (chatbot + recommandations)
+    // Accessible par tous les utilisateurs authentifiés (admin, agent, client)
+    // ─────────────────────────────────────────────────────────────────────────
+    Route::prefix('ai')->group(function () {
+        // Chatbot conversationnel : POST /api/ai/chat
+        Route::post('/chat',                 [AiController::class, 'chat']);
+        // Recommandations de biens personnalisées : POST /api/ai/recommandations (Rate limiting: 15 req/min)
+        Route::post('/recommandations',      [AiController::class, 'recommandations'])->middleware('throttle:15,1');
+        // Génération / Enrichissement de description : POST /api/ai/generer-description
+        Route::post('/generer-description', [AiController::class, 'genererDescription']);
+        // Diagnostic de connexion (local dev uniquement) : GET /api/ai/ping
+        Route::get('/ping',                  [AiController::class, 'ping']);
     });
 });

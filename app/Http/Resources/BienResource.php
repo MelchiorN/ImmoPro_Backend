@@ -18,14 +18,16 @@ class BienResource extends JsonResource
     public function toArray(Request $request): array
     {
         $user           = $request->user();
-        $canSee         = $this->canSeeAdminNote($request);
-        $hasGps         = $this->resource->hasPaidVisit($user);
-        $canSeeProprio  = $canSee || $hasGps;
+        $canSeeAdmin    = $this->canSeeAdminNote($request);
+        $hasGps         = $this->resource->canSeeGps($user);
+        $hasPaidVisit   = $this->resource->hasPaidVisit($user);
+        $canSeeProprio  = $this->resource->canSeeProprioContact($user);
 
         $descriptionService = app(BienDescriptionService::class);
 
         return [
             'id'               => $this->id,
+            'user_id'          => $this->user_id,
 
             // Classification
             'type_bien'        => $this->type_bien,
@@ -38,7 +40,7 @@ class BienResource extends JsonResource
             'prix'             => (float) $this->prix,
             'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
             'prix_visite'      => $this->resource->getPrixVisiteEffectif(),
-            'visite_payee'     => $hasGps,   // indique au mobile s'il peut afficher la carte
+            'visite_payee'     => $hasPaidVisit,   // true si la visite a été payée
             'unite_prix'       => $this->unite_prix,
             'avance_mois'      => $this->avance_mois,
             'caution'          => $this->caution ? (float) $this->caution : null,
@@ -48,7 +50,7 @@ class BienResource extends JsonResource
             'caracteristiques' => $this->caracteristiques ?? [],
 
             // Localisation — adresse toujours visible
-            // latitude/longitude protégées : null tant que la visite n'est pas payée
+            // latitude/longitude actives si visite payée, admin/agent ou déposant du bien
             'adresse'          => $this->adresse,
             'latitude'         => $hasGps ? (float) $this->latitude : null,
             'longitude'        => $hasGps ? (float) $this->longitude : null,
@@ -60,18 +62,18 @@ class BienResource extends JsonResource
             // Frais d'étude
             'frais_etude_statut' => $this->frais_etude_statut,
 
-            // Note admin (visible pour le propriétaire, admin, agent)
-            'note_admin'       => $this->when($canSee, $this->note_admin),
+            // Note admin (visible pour le déposant du bien, admin, agent)
+            'note_admin'       => $this->when($canSeeAdmin, $this->note_admin),
 
-            // Identité du déposant (visible pour proprio, admin, agent et client ayant payé la visite)
-            'role_deposant'            => $this->when($canSee, $this->role_deposant),
+            // Identité du déposant et coordonnées du propriétaire (contact visible uniquement sur visite payée ou admin/agent)
+            'role_deposant'            => $this->when($canSeeAdmin, $this->role_deposant),
             'proprietaire_nom'         => $this->when($canSeeProprio, $this->proprietaire_nom ?? $this->proprietaire?->last_name),
             'proprietaire_prenom'      => $this->when($canSeeProprio, $this->proprietaire_prenom ?? $this->proprietaire?->first_name),
-            'proprietaire_sexe'        => $this->when($canSee, $this->proprietaire_sexe),
-            'proprietaire_nationalite' => $this->when($canSee, $this->proprietaire_nationalite),
+            'proprietaire_sexe'        => $this->when($canSeeAdmin, $this->proprietaire_sexe),
+            'proprietaire_nationalite' => $this->when($canSeeAdmin, $this->proprietaire_nationalite),
             'proprietaire_telephone'   => $this->when($canSeeProprio, $this->proprietaire_telephone ?? $this->proprietaire?->telephone),
             'proprietaire_email'       => $this->when($canSeeProprio, $this->proprietaire_email ?? $this->proprietaire?->email),
-            'proprietaire_adresse'     => $this->when($canSee, $this->proprietaire_adresse),
+            'proprietaire_adresse'     => $this->when($canSeeAdmin, $this->proprietaire_adresse),
 
             // Propriétaire du compte
             'proprietaire'     => $this->when($canSeeProprio, fn () => $this->proprietaire ? [

@@ -101,7 +101,15 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+
+        // Log d'activité Spatie
+        activity()
+            ->causedBy($user)
+            ->performedOn($user)
+            ->log('Déconnexion');
+
+        $user->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Déconnexion réussie.'], 200);
     }

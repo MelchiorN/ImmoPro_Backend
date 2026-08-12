@@ -9,7 +9,9 @@ use App\Http\Resources\BienListResource;
 use App\Http\Resources\BienResource;
 use App\Models\Bien;
 use App\Models\User;
+use App\Services\BienDescriptionService;
 use App\Services\EmailTemplateService;
+use App\Services\GeminiService;
 use App\Services\NotificationService;
 use App\Services\WorkflowService;
 use Illuminate\Http\JsonResponse;
@@ -18,8 +20,10 @@ use Illuminate\Http\Request;
 class BienAdminController extends Controller
 {
     public function __construct(
-        private readonly NotificationService $notifService,
-        private readonly WorkflowService     $workflowService,
+        private readonly NotificationService    $notifService,
+        private readonly WorkflowService        $workflowService,
+        private readonly GeminiService          $gemini,
+        private readonly BienDescriptionService $descService,
     ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -58,6 +62,34 @@ class BienAdminController extends Controller
                 'per_page'     => $biens->perPage(),
                 'current_page' => $biens->currentPage(),
                 'last_page'    => $biens->lastPage(),
+            ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/admin/biens/counts
+    // Compteurs par statut — utilisé par l'AdminSidebar pour les badges
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function counts(): JsonResponse
+    {
+        $raw = Bien::whereIn('statut', ['en_attente', 'en_cours', 'publie', 'rejete', 'retire', 'valide'])
+            ->selectRaw('statut, COUNT(*) as total')
+            ->groupBy('statut')
+            ->pluck('total', 'statut')
+            ->toArray();
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'en_attente' => $raw['en_attente'] ?? 0,
+                'en_cours'   => $raw['en_cours']   ?? 0,
+                'publie'     => $raw['publie']      ?? 0,
+                'rejete'     => $raw['rejete']      ?? 0,
+                'retire'     => $raw['retire']      ?? 0,
+                'valide'     => $raw['valide']      ?? 0,
+                // Dossiers actifs = en_attente (non assignés) + en_cours (en traitement)
+                'actifs'     => ($raw['en_attente'] ?? 0) + ($raw['en_cours'] ?? 0),
             ],
         ]);
     }
@@ -140,6 +172,22 @@ class BienAdminController extends Controller
         }
 
         $bien->update($payload);
+
+        // ── Générer et mettre en cache la description Gemini ─────────────────
+        // Uniquement lors du passage en "valide" et si la desc n'existe pas encore.
+        // Silencieux : une erreur Gemini ne bloque jamais le workflow d'approbation.
+        if ($nouveauStatut === 'valide' && empty($bien->desc_personnalisee)) {
+            try {
+                $descBrute       = $this->descService->construire($bien);
+                $descPersonnalisee = $this->gemini->enrichirDescription($descBrute, $bien->toArray());
+                $bien->update(['desc_personnalisee' => $descPersonnalisee]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[BienAdmin] Génération desc Gemini échouée (non bloquante)', [
+                    'bien_id' => $bien->id,
+                    'error'   => $e->getMessage(),
+                ]);
+            }
+        }
 
         // ── Notifier le propriétaire du changement de statut ──────────────────
         if ($bien->proprietaire) {

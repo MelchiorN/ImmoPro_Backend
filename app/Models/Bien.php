@@ -21,6 +21,7 @@ class Bien extends Model
         'type_transaction',
         'titre',
         'description',
+        'desc_personnalisee',  // Générée par Gemini à l'approbation, mise en cache ici
         'prix',
         'prix_public',
         'unite_prix',
@@ -288,7 +289,7 @@ class Bien extends Model
     }
 
     /**
-     * Vrai si l'utilisateur a payé les frais de visite pour ce bien (ou s'il a le droit de voir d'office).
+     * Vrai si l'utilisateur a payé les frais de visite pour ce bien.
      */
     public function hasPaidVisit(?User $user): bool
     {
@@ -296,15 +297,44 @@ class Bien extends Model
             return false;
         }
 
-        // Admin, agent assigné et propriétaire du bien ont accès d'office
-        if (in_array($user->role, ['admin', 'agent']) || $this->user_id === $user->id) {
-            return true;
-        }
-
         // Vérifier s'il y a un paiement confirmé pour une visite de ce bien par ce client
         return Visite::where('bien_id', $this->id)
             ->where('client_id', $user->id)
             ->where('est_payee', true)
             ->exists();
+    }
+
+    /**
+     * Vrai si l'utilisateur peut voir les coordonnées GPS / carte (déposant du bien, admin, agent ou visite payée).
+     */
+    public function canSeeGps(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        if (in_array($user->role, ['admin', 'agent']) || $this->user_id === $user->id) {
+            return true;
+        }
+
+        return $this->hasPaidVisit($user);
+    }
+
+    /**
+     * Vrai si l'utilisateur peut voir les coordonnées de contact du propriétaire.
+     * Les coordonnées du propriétaire s'affichent QUE quand il y a un paiement effectif (ou pour admin/agent).
+     * Le déposant du bien a la localisation GPS active mais N'A PAS les coordonnées tant qu'il n'y a pas de paiement.
+     */
+    public function canSeeProprioContact(?User $user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        if (in_array($user->role, ['admin', 'agent'])) {
+            return true;
+        }
+
+        return $this->hasPaidVisit($user);
     }
 }

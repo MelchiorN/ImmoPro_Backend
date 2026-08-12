@@ -38,11 +38,11 @@ class BienDescriptionService
 
     private const TYPES_APPARTEMENT = [
         'studio' => 'Studio',
-        'f1'     => 'F1',
-        'f2'     => 'F2',
-        'f3'     => 'F3',
-        'f4'     => 'F4',
-        'f5'     => 'F5+',
+        'f1'     => '1 chambre salon',
+        'f2'     => '1 chambre salon',
+        'f3'     => '2 chambres salon',
+        'f4'     => '3 chambres salon',
+        'f5'     => '4 chambres salon ou +',
     ];
 
     private const ETATS_BIEN = [
@@ -69,13 +69,13 @@ class BienDescriptionService
     ];
 
     private const USAGES_TOILETTE = [
-        'privee'   => 'à usage privé',
-        'partagee' => 'à usage partagé',
+        'privee'   => 'interne',
+        'partagee' => 'externe / partagée',
     ];
 
     private const EMPLACEMENTS_TOILETTE = [
-        'interne' => 'intérieure',
-        'externe' => 'extérieure',
+        'interne' => 'interne',
+        'externe' => 'externe',
     ];
 
     private const TYPES_PARKING = [
@@ -91,24 +91,66 @@ class BienDescriptionService
         'marbre'     => 'marbre',
     ];
 
+    public function __construct(private readonly ?GeminiService $gemini = null) {}
+
     // ─── Point d'entrée ──────────────────────────────────────────────────────
 
     /**
      * Génère la description narrative du bien.
-     * Si le bien a déjà une description saisie manuellement, elle est retournée telle quelle.
+     * Priorité :
+     *   1. desc_personnalisee (générée par Gemini lors de la validation — en cache)
+     *   2. Gemini en temps réel (si desc_personnalisee vide et Gemini disponible)
+     *   3. description manuelle du propriétaire (fallback)
+     *   4. Génération automatique par règles (dernier recours)
      */
     public function generer(Bien $bien): string
     {
-        // Si l'utilisateur a saisi une description manuelle, on la respecte
+        // 1. Description personnalisée déjà générée (mise en cache à la validation)
+        if (!empty($bien->desc_personnalisee)) {
+            return $bien->desc_personnalisee;
+        }
+
+        // 2. Tenter la génération dynamique via Gemini AI
+        try {
+            $geminiService = $this->gemini ?? app(GeminiService::class);
+            
+            // Note ou description manuelle existante (s'il y en a une)
+            $notes = $bien->description ?? '';
+            
+            $descriptionGemini = $geminiService->enrichirDescription($notes, [
+                'type_bien'        => $bien->type_bien,
+                'type_transaction' => $bien->type_transaction,
+                'ville'            => $bien->ville ?? 'Lomé',
+                'quartier'         => $bien->adresse ?? ($bien->quartier ?? null),
+                'prix'             => (float) $bien->prix,
+                'unite_prix'       => $bien->unite_prix,
+                'surface'          => $bien->surface ? (float) $bien->surface : null,
+                'superficie'       => $bien->superficie ? (float) $bien->superficie : null,
+                'nb_pieces'        => $bien->nb_pieces,
+                'caracteristiques' => $bien->caracteristiques ?? [],
+            ]);
+
+            if (!empty($descriptionGemini)) {
+                return $descriptionGemini;
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[BienDescriptionService] Gemini indisponible, fallback vers règles.', [
+                'bien_id' => $bien->id,
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        // 3. Description manuelle du propriétaire
         if (!empty($bien->description)) {
             return $bien->description;
         }
 
+        // 4. Génération automatique par règles
         return $this->construire($bien);
     }
 
     /**
-     * Force la génération automatique même si une description existe.
+     * Force la génération automatique par règles (fallback).
      */
     public function construire(Bien $bien): string
     {
@@ -264,10 +306,10 @@ class BienDescriptionService
             $douchPriv = (int) ($car['nb_chambres_douche_privative'] ?? 0);
             $suffixes = [];
             if ($sdbPriv > 0) {
-                $suffixes[] = "{$sdbPriv} avec salle de bain privative";
+                $suffixes[] = "{$sdbPriv} avec WC douche interne";
             }
             if ($douchPriv > 0) {
-                $suffixes[] = "{$douchPriv} avec douche privative";
+                $suffixes[] = "{$douchPriv} avec douche interne";
             }
             if ($suffixes) {
                 $detail .= " (dont " . implode(', ', $suffixes) . ")";
@@ -481,7 +523,7 @@ class BienDescriptionService
 
     private function descriptionPrix(Bien $bien): string
     {
-        $prix = (float) $bien->prix_public ?: (float) $bien->prix;
+        $prix = (float) $bien->prix;
         if ($prix <= 0) {
             return '';
         }

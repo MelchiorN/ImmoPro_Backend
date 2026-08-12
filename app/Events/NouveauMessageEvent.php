@@ -55,6 +55,7 @@ class NouveauMessageEvent implements ShouldBroadcast
         return [
             'message_id'      => $this->message->id,
             'conversation_id' => $this->message->conversation_id,
+            'contenu'         => $this->message->contenu,
             'contenu_apercu'  => mb_substr($this->message->contenu, 0, 80),
             'envoye_le'       => $this->message->created_at?->toIso8601String(),
             'sender' => [

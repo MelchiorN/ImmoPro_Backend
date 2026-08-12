@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 namespace Database\Seeders;
 
@@ -174,7 +174,15 @@ class CategorieSeeder extends Seeder
                 'description'             => 'Logement autonome au sein d\'un immeuble.',
                 'pourcentage_commission'  => 7.50,
                 'frais_etude_pourcentage' => 1.00,
-                // NOTE: types_logement supprimes - plus de F1/F2/F3
+                // Types de logement : prédéfinis (nb chambres/salon connus) + Autre (saisie libre frontend)
+                'types_logement' => [
+                    ['slug' => 'studio_f1', 'nom' => 'Studio / F1 (1 chambre + coin salon)',      'est_socle' => true],
+                    ['slug' => 'f2',        'nom' => 'F2 — 2 Pièces (1 ch. + 1 salon)',           'est_socle' => true],
+                    ['slug' => 'f3',        'nom' => 'F3 — 3 Pièces (2 ch. + 1 salon)',           'est_socle' => true],
+                    ['slug' => 'f4',        'nom' => 'F4 — 4 Pièces (3 ch. + 1 salon)',           'est_socle' => true],
+                    ['slug' => 'f5_plus',   'nom' => 'F5+ — Grand appartement (4 ch. et plus)',   'est_socle' => true],
+                    ['slug' => 'autre',     'nom' => 'Autre (configuration personnalisée)',        'est_socle' => false],
+                ],
                 'attributs' => [
                     // Chambres
                     ['nom_champ' => 'nb_chambres',               'label_affiche' => 'Nombre de chambres',                  'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => true],
@@ -193,7 +201,9 @@ class CategorieSeeder extends Seeder
                     ['nom_champ' => 'nb_etages_immeuble',        'label_affiche' => 'Nombre total d\'etages de l\'immeuble', 'type_champ' => 'nombre', 'obligatoire' => false, 'est_socle' => false],
                     // Structure & equipements
                     ['nom_champ' => 'cuisine',                   'label_affiche' => 'Cuisine',                             'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
-                    ['nom_champ' => 'magasin_debarras',          'label_affiche' => 'Magasin / Debarras',                  'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
+                    ['nom_champ' => 'magasin_debarras',          'label_affiche' => 'Magasin / Débarras',                  'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
+                    // Cour — obligatoire socle : l'appartement est dans un immeuble, il faut préciser le type de cour
+                    ['nom_champ' => 'type_cour', 'label_affiche' => 'Type de cour', 'type_champ' => 'enum', 'options_enum' => ['commune', 'unique'], 'obligatoire' => true, 'est_socle' => true],
                     // Electricite & eau
                     ['nom_champ' => 'compteur_electricite_type', 'label_affiche' => 'Compteur d\'electricite',             'type_champ' => 'enum', 'options_enum' => $optsCompteur, 'obligatoire' => false, 'est_socle' => false],
                     ['nom_champ' => 'compteur_eau_type',         'label_affiche' => 'Compteur d\'eau',                     'type_champ' => 'enum', 'options_enum' => $optsCompteur, 'obligatoire' => false, 'est_socle' => false],

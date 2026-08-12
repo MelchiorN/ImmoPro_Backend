@@ -162,14 +162,16 @@ class SemoaService
     {
         // Mode simulation : retourner une fausse facture
         if ($this->isSimulation()) {
-            $fakeRef = 'SIM-' . now()->timestamp . '-' . strtoupper(substr(md5(rand()), 0, 6));
+            $fakeRef  = 'SANDBOX-' . now()->timestamp . '-' . strtoupper(substr(md5(rand()), 0, 6));
+            $billUrl  = 'https://sandbox.cashpay.tg/facture/' . $fakeRef;
             Log::info('[Semoa SIMULATION] Facture simulée créée', [
                 'order_reference' => $fakeRef,
-                'montant' => $params['montant'],
+                'bill_url'        => $billUrl,
+                'montant'         => $params['montant'],
             ]);
             return [
                 'order_reference' => $fakeRef,
-                'bill_url'        => 'https://sandbox.cashpay.tg/facture/' . $fakeRef,
+                'bill_url'        => $billUrl,
                 'state'           => 'Pending',
                 'raw'             => ['simulated' => true],
             ];
@@ -191,13 +193,21 @@ class SemoaService
             throw new \InvalidArgumentException("[Semoa] Le montant de la commande doit être supérieur à 0 FCFA (fourni : {$params['montant']}).");
         }
 
+        // Forcer l'utilisation de l'URL Ngrok pour le webhook Semoa si disponible dans config/env
+        $webhookBase = config('services.semoa.webhook_base_url');
+        if (!empty($webhookBase)) {
+            $callbackUrl = str_replace(url('/'), rtrim($webhookBase, '/'), $params['callback_url']);
+        } else {
+            $callbackUrl = $params['callback_url'];
+        }
+
         $response = Http::withToken($token)
             ->acceptJson()
             ->asJson()
             ->post("{$this->baseUrl}/tpos/orders", [
                 'amount'             => $amount,
                 'merchant_reference' => $params['reference'],
-                'callback_url'       => $params['callback_url'],
+                'callback_url'       => $callbackUrl,
                 'redirect_url'       => $params['redirect_url'] ?? null,
                 'client'             => [
                     'phone'   => $params['telephone'],
@@ -213,12 +223,22 @@ class SemoaService
         $this->checkResponse($response, 'Création facture Semoa');
 
         $data = $response->json();
+        $orderRef = $data['order_reference'] ?? $params['reference'];
 
-        Log::info('[Semoa] Facture créée', ['order_reference' => $data['order_reference'] ?? null]);
+        $isSandbox = config('services.semoa.env', 'sandbox') === 'sandbox';
+        $domain = $isSandbox ? 'sandbox.cashpay.tg' : 'cashpay.tg';
+        $checkoutUrl = "https://{$domain}/facture/{$orderRef}";
+
+        Log::info('[Semoa] Facture créée', [
+            'order_reference' => $orderRef,
+            'checkout_url'    => $checkoutUrl,
+            'api_bill_url'    => $data['bill_url'] ?? null
+        ]);
 
         return [
-            'order_reference' => $data['order_reference'] ?? $params['reference'],
-            'bill_url'        => $data['bill_url'] ?? null,
+            'order_reference' => $orderRef,
+            'bill_url'        => $checkoutUrl,
+            'raw_bill_url'    => $data['bill_url'] ?? null,
             'state'           => $data['state'] ?? 'Pending',
             'raw'             => $data,
         ];

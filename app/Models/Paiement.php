@@ -24,6 +24,7 @@ class Paiement extends Model
         'operateur_paiement',
         'reference_transaction',
         'semoa_bill_id',
+        'payment_url',
         'statut',
     ];
 
@@ -32,6 +33,27 @@ class Paiement extends Model
         return [
             'montant' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Accessor pour garantir que payment_url utilise toujours le guichet interactif (/facture/)
+     */
+    public function getPaymentUrlAttribute(?string $value): ?string
+    {
+        $isSandbox = config('services.semoa.env', 'sandbox') === 'sandbox';
+        $domain = $isSandbox ? 'sandbox.cashpay.tg' : 'cashpay.tg';
+
+        if (empty($value) && !empty($this->semoa_bill_id)) {
+            return "https://{$domain}/facture/{$this->semoa_bill_id}";
+        }
+
+        if (!empty($value)) {
+            $value = str_replace('sandbox-bill.cashpay.tg/', 'sandbox.cashpay.tg/facture/', $value);
+            $value = str_replace('bill.cashpay.tg/', 'cashpay.tg/facture/', $value);
+            $value = str_replace('lk.semoa.tg/', "{$domain}/facture/", $value);
+        }
+
+        return $value;
     }
 
     public const STATUTS        = ['initie', 'en_attente', 'confirme', 'succes', 'echoue'];

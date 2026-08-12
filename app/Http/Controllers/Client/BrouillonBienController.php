@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Events\NouveauBienSoumis;
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\Categorie;
@@ -187,6 +188,20 @@ class BrouillonBienController extends Controller
             'publication_auto' => $request->boolean('publication_auto'),
             'submitted_at'     => now(),
         ]);
+
+        // Log d'activité Spatie
+        activity()
+            ->causedBy($user)
+            ->performedOn($bien)
+            ->withProperties(['titre' => $bien->titre, 'type' => $bien->type_bien])
+            ->log('Bien soumis pour vérification');
+
+        // ── Broadcast temps réel — notifier les admins d'un nouveau dossier ──
+        try {
+            broadcast(new NouveauBienSoumis($bien->fresh()));
+        } catch (\Throwable $e) {
+            Log::warning('[BrouillonBien] Broadcast soumettre échoué : ' . $e->getMessage());
+        }
 
         return response()->json([
             'success' => true,

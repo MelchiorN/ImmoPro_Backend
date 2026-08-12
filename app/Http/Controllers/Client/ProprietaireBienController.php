@@ -178,10 +178,8 @@ class ProprietaireBienController extends Controller
     public function retirer(Request $request, string $id): JsonResponse
     {
         $request->validate([
-            'motif' => 'required|string|min:10|max:300',
+            'motif' => 'nullable|string|max:300',
         ], [
-            'motif.required' => 'Le motif de retrait est obligatoire.',
-            'motif.min'      => 'Le motif doit contenir au moins 10 caractères.',
             'motif.max'      => 'Le motif ne peut pas dépasser 300 caractères.',
         ]);
 
@@ -191,7 +189,7 @@ class ProprietaireBienController extends Controller
 
         $bien->update([
             'statut'     => 'retire',
-            'note_admin' => '[RETRAIT PROPRIÉTAIRE] ' . $request->input('motif'),
+            'note_admin' => '[RETRAIT PROPRIÉTAIRE] ' . ($request->input('motif') ?: 'Aucun motif fourni'),
         ]);
 
         // ── Notifier le propriétaire ──────────────────────────────────────────
@@ -203,7 +201,7 @@ class ProprietaireBienController extends Controller
                 rows: [
                     ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
                     ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
-                    ['icon' => '📝', 'label' => 'Motif',   'value' => $request->input('motif')],
+                    ['icon' => '📝', 'label' => 'Motif',   'value' => $request->input('motif') ?: 'Aucun motif fourni'],
                     ['icon' => '👁️', 'label' => 'Statut',  'value' => 'Retiré de la publication'],
                 ],
                 outro: 'Votre bien est toujours enregistré. Vous pouvez contacter le support si vous souhaitez le republier.'

@@ -155,9 +155,7 @@ class AbonnementController extends Controller
                     'operateur'    => $operateur,
                     'statut'       => 'initie',
                     'instructions' => $instructions,
-                    'payment_url'  => $existingPaiement->semoa_bill_id
-                        ? 'https://sandbox.cashpay.tg/facture/' . $existingPaiement->semoa_bill_id
-                        : null,
+                    'payment_url'  => $existingPaiement->payment_url ?? null,
                 ],
             ]);
         }
@@ -210,10 +208,11 @@ class AbonnementController extends Controller
                 }
             }
 
-            // 5. Sauvegarder la référence Semoa
+            // 5. Sauvegarder la référence Semoa et la payment_url
             $paiement->update([
                 'reference_transaction' => $result['order_reference'] ?? $reference,
                 'semoa_bill_id'         => $result['order_reference'] ?? null,
+                'payment_url'           => $result['bill_url'] ?? null,
             ]);
 
             DB::commit();
@@ -366,6 +365,13 @@ class AbonnementController extends Controller
             }
 
             DB::commit();
+
+            // Log d'activité Spatie
+            activity()
+                ->causedBy($request->user())
+                ->performedOn($abonnementResultat)
+                ->withProperties(['plan' => $userAbonnement->plan->nom ?? 'Inconnu'])
+                ->log('Abonnement souscrit');
 
             return response()->json([
                 'success' => true,

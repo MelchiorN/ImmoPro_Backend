@@ -3,10 +3,17 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Bien;
 use App\Models\HistoriqueConnexion;
+use App\Models\Rapport;
 use App\Models\User;
+use App\Models\UserAbonnement;
+use App\Models\Visite;
+use App\Models\Favori;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
 class AdminUserController extends Controller
@@ -57,6 +64,11 @@ class AdminUserController extends Controller
         // Filtre par statut
         if ($status = $request->query('status')) {
             $query->where('status', $status);
+        }
+
+        // Filtre par rôle
+        if ($role = $request->query('role')) {
+            $query->where('role', $role);
         }
 
         $users = $query->paginate($request->query('per_page', 15));
@@ -128,19 +140,36 @@ class AdminUserController extends Controller
             ->where('causer_type', 'App\\Models\\User')
             ->where('causer_id', $user->id)
             ->latest()
-            ->limit(10)
+            ->limit(50)
             ->get()
             ->map(fn ($activity) => [
-                'id' => $activity->id,
-                'description' => $activity->description,
-                'log_name' => $activity->log_name,
-                'subject_type' => $activity->subject_type ? class_basename($activity->subject_type) : null,
+                'id'            => $activity->id,
+                'description'   => $activity->description,
+                'log_name'      => $activity->log_name,
+                'subject_type'  => $activity->subject_type ? class_basename($activity->subject_type) : null,
                 'subject_label' => $activity->subject ? (
                     $activity->subject->titre
                     ?? $activity->subject->email
                     ?? $activity->subject->first_name . ' ' . ($activity->subject->last_name ?? '')
                 ) : null,
-                'created_at' => $activity->created_at?->toIso8601String(),
+                'properties'    => $activity->properties,
+                'created_at'    => $activity->created_at?->toIso8601String(),
+            ]);
+
+        // Historique de connexions (30 dernières sessions)
+        $data['connexions'] = HistoriqueConnexion::where('user_id', $user->id)
+            ->latest('connected_at')
+            ->limit(30)
+            ->get()
+            ->map(fn ($h) => [
+                'id'           => $h->id,
+                'ip_address'   => $h->ip_address,
+                'device_type'  => $h->device_type,
+                'plateforme'   => $h->plateforme,
+                'ville'        => $h->ville,
+                'pays'         => $h->pays,
+                'statut'       => $h->statut,
+                'connected_at' => $h->connected_at?->toIso8601String(),
             ]);
 
         return response()->json([
@@ -213,6 +242,179 @@ class AdminUserController extends Controller
                 'per_page'     => $historique->perPage(),
                 'current_page' => $historique->currentPage(),
                 'last_page'    => $historique->lastPage(),
+            ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/admin/users/{id}/stats/agent
+    // Statistiques d'un agent spécifique (vu par l'admin)
+    // ─────────────────────────────────────────────────────────────────────────
+    public function agentStats(string $id): JsonResponse
+    {
+        $agent = User::where('role', 'agent')->findOrFail($id);
+
+        $months = collect();
+        for ($i = 5; $i >= 0; $i--) {
+            $months->push(Carbon::now()->startOfMonth()->subMonths($i));
+        }
+
+        // Biens publiés/validés par mois
+        $publies = Bien::select(
+                DB::raw("DATE_FORMAT(updated_at, '%Y-%m') as mois"),
+                DB::raw('COUNT(*) as total')
+            )
+            ->where('agent_id', $agent->id)
+            ->whereIn('statut', ['valide', 'publie'])
+            ->where('updated_at', '>=', Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Biens rejetés par mois
+        $rejetes = Bien::select(
+                DB::raw("DATE_FORMAT(updated_at, '%Y-%m') as mois"),
+                DB::raw('COUNT(*) as total')
+            )
+            ->where('agent_id', $agent->id)
+            ->where('statut', 'rejete')
+            ->where('updated_at', '>=', Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Visites planifiées par mois
+        $visites = Visite::select(
+                DB::raw("DATE_FORMAT(created_at, '%Y-%m') as mois"),
+                DB::raw('COUNT(*) as total')
+            )
+            ->where('agent_id', $agent->id)
+            ->where('created_at', '>=', Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        // Rapports rédigés par mois
+        $rapports = Rapport::select(
+                DB::raw("DATE_FORMAT(created_at, '%Y-%m') as mois"),
+                DB::raw('COUNT(*) as total')
+            )
+            ->where('agent_id', $agent->id)
+            ->where('created_at', '>=', Carbon::now()->subMonths(6)->startOfMonth())
+            ->groupBy('mois')
+            ->pluck('total', 'mois');
+
+        $labels = []; $dataPub = []; $dataRej = []; $dataVis = []; $dataRap = [];
+        foreach ($months as $date) {
+            $key = $date->format('Y-m');
+            $labels[]  = $date->locale('fr')->isoFormat('MMM YY');
+            $dataPub[] = $publies[$key]  ?? 0;
+            $dataRej[] = $rejetes[$key]  ?? 0;
+            $dataVis[] = $visites[$key]  ?? 0;
+            $dataRap[] = $rapports[$key] ?? 0;
+        }
+
+        // Répartition biens par type
+        $parType = Bien::select('type_bien', DB::raw('COUNT(*) as total'))
+            ->where('agent_id', $agent->id)
+            ->groupBy('type_bien')
+            ->orderByDesc('total')
+            ->pluck('total', 'type_bien');
+
+        // KPI totaux
+        $kpis = [
+            'biens_traites'  => Bien::where('agent_id', $agent->id)->count(),
+            'biens_publies'  => Bien::where('agent_id', $agent->id)->whereIn('statut', ['publie', 'valide'])->count(),
+            'biens_rejetes'  => Bien::where('agent_id', $agent->id)->where('statut', 'rejete')->count(),
+            'visites_total'  => Visite::where('agent_id', $agent->id)->count(),
+            'rapports_total' => Rapport::where('agent_id', $agent->id)->count(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'kpis'     => $kpis,
+                'labels'   => $labels,
+                'publies'  => $dataPub,
+                'rejetes'  => $dataRej,
+                'visites'  => $dataVis,
+                'rapports' => $dataRap,
+                'par_type' => $parType,
+            ],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/admin/users/{id}/stats/client
+    // Statistiques d'un client/propriétaire spécifique (vu par l'admin)
+    // ─────────────────────────────────────────────────────────────────────────
+    public function clientStats(string $id): JsonResponse
+    {
+        $client = User::whereIn('role', ['client', 'admin'])->findOrFail($id);
+        $userId = $client->id;
+
+        // Biens par statut
+        $biensParStatut = Bien::where('user_id', $userId)
+            ->selectRaw('statut, COUNT(*) as count')
+            ->groupBy('statut')
+            ->pluck('count', 'statut')
+            ->toArray();
+
+        // Évolution publications (12 mois)
+        $evolutionPublications = Bien::where('user_id', $userId)
+            ->where('created_at', '>=', Carbon::now()->subMonths(12))
+            ->selectRaw('DATE_FORMAT(created_at, "%Y-%m") as mois, COUNT(*) as count')
+            ->groupBy('mois')
+            ->orderBy('mois')
+            ->get()
+            ->map(fn ($item) => ['mois' => $item->mois, 'count' => $item->count])
+            ->toArray();
+
+        // Visites effectuées (client demandeur)
+        $visitesParMois = Visite::where('client_id', $userId)
+            ->where('created_at', '>=', Carbon::now()->subMonths(12))
+            ->selectRaw('DATE_FORMAT(created_at, "%Y-%m") as mois, COUNT(*) as count')
+            ->groupBy('mois')
+            ->orderBy('mois')
+            ->get()
+            ->map(fn ($item) => ['mois' => $item->mois, 'count' => $item->count])
+            ->toArray();
+
+        $visitesTotal  = Visite::where('client_id', $userId)->count();
+        $visitesPayees = Visite::where('client_id', $userId)->where('statut', 'payee')->count();
+
+        // Abonnements
+        $abonnementsCount = UserAbonnement::where('user_id', $userId)->count();
+        $abonnementActif  = UserAbonnement::where('user_id', $userId)
+            ->where('statut', 'actif')
+            ->with('plan')
+            ->first();
+
+        // Favoris
+        $totalFavoris = \App\Models\Favori::where('user_id', $userId)->count();
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'biens_par_statut' => [
+                    'total'      => array_sum($biensParStatut),
+                    'publie'     => $biensParStatut['publie']     ?? 0,
+                    'en_attente' => $biensParStatut['en_attente'] ?? 0,
+                    'rejete'     => $biensParStatut['rejete']     ?? 0,
+                    'retire'     => $biensParStatut['retire']     ?? 0,
+                    'brouillon'  => $biensParStatut['brouillon']  ?? 0,
+                ],
+                'evolution_publications' => $evolutionPublications,
+                'visites' => [
+                    'total'     => $visitesTotal,
+                    'payees'    => $visitesPayees,
+                    'par_mois'  => $visitesParMois,
+                ],
+                'abonnements' => [
+                    'total'  => $abonnementsCount,
+                    'actif'  => $abonnementActif ? [
+                        'plan'  => $abonnementActif->plan->nom ?? 'Inconnu',
+                        'quota' => $abonnementActif->nb_publications_restantes,
+                    ] : null,
+                ],
+                'favoris_total' => $totalFavoris,
             ],
         ]);
     }

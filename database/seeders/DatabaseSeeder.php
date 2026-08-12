@@ -7,6 +7,7 @@ use Database\Seeders\CategorieSeeder;
 use Database\Seeders\ConfigPublicationSeeder;
 use Database\Seeders\DocumentLegalSeeder;
 use Database\Seeders\PlanAbonnementSeeder;
+use Database\Seeders\DescPersonnaliseeSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -33,7 +34,8 @@ class DatabaseSeeder extends Seeder
             // BienSeeder::class,
             // ContratTemplateSeeder::class,
             // PlanAbonnementSeeder::class,
-            DocumentLegalSeeder::class,     // CGU, CGV, Politique de confidentialité, À propos
+            DescPersonnaliseeSeeder::class,
+            // DocumentLegalSeeder::class,     // CGU, CGV, Politique de confidentialité, À propos
         ]);
     }
 }

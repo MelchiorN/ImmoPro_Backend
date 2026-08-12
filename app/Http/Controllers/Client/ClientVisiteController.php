@@ -6,7 +6,8 @@ use App\Events\VisiteStatutChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Bien;
 use App\Models\CreneauVisite;
-use App\Models\Paiement;use App\Models\Recu;
+use App\Models\Paiement;
+use App\Models\Recu;
 use App\Models\User;
 use App\Models\Visite;
 use App\Services\EmailTemplateService;
@@ -250,6 +251,13 @@ class ClientVisiteController extends Controller
                 ['visite_id' => $visite->id, 'bien_id' => $bienId]);
         }
 
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
+        } catch (\Throwable $e) {
+            Log::warning('[ClientVisiteController] Broadcast choisirCreneau échoué: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Créneau choisi. La visite est confirmée.',
@@ -292,6 +300,13 @@ class ClientVisiteController extends Controller
                 'Visite annulée', $msg,
                 ['visite_id' => $visite->id, 'bien_id' => $bien->id],
                 "ImmoPro — Visite annulée : {$bien->titre}", $html);
+        }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
+        } catch (\Throwable $e) {
+            Log::warning('[ClientVisiteController] Broadcast annulerVisite échoué: ' . $e->getMessage());
         }
 
         return response()->json(['success' => true, 'message' => 'Visite annulée.']);
@@ -637,6 +652,14 @@ class ClientVisiteController extends Controller
 
             DB::commit();
 
+            // ── Broadcast temps réel — nouvelle visite créée (statut proposee) ─
+            // Notifie l'agent que les créneaux sont à proposer (badge sidebar)
+            try {
+                broadcast(new VisiteStatutChanged($visite->fresh(['bien'])));
+            } catch (\Throwable $e) {
+                Log::warning('[VisitePaiement] Broadcast confirmerPaiement échoué : ' . $e->getMessage());
+            }
+
             Log::info('[VisitePaiement] Confirmation réussie', [
                 'paiement_id' => $paiement->id,
                 'visite_id'   => $visite->id,
@@ -740,6 +763,13 @@ class ClientVisiteController extends Controller
             );
         }
 
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
+        } catch (\Throwable $e) {
+            Log::warning('[ClientVisiteController] Broadcast choisirCreneauVisite échoué: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => "Créneau choisi. Votre visite est confirmée pour le {$dateLabel}.",
@@ -812,6 +842,13 @@ class ClientVisiteController extends Controller
                 "ImmoPro — Client indisponible : {$bien->titre}",
                 $html
             );
+        }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
+        } catch (\Throwable $e) {
+            Log::warning('[ClientVisiteController] Broadcast signalerIndisponibilite échoué: ' . $e->getMessage());
         }
 
         return response()->json([
@@ -890,6 +927,13 @@ class ClientVisiteController extends Controller
                 "ImmoPro — Proprio indisponible : {$bien->titre}",
                 $html
             );
+        }
+
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
+        } catch (\Throwable $e) {
+            Log::warning('[ClientVisiteController] Broadcast signalerIndisponibiliteVerification échoué: ' . $e->getMessage());
         }
 
         return response()->json([

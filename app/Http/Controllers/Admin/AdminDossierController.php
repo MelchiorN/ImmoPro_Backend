@@ -133,6 +133,13 @@ class AdminDossierController extends Controller
         $bien->note_admin = $request->input('motif', 'Retiré par l\'administrateur.');
         $bien->save();
 
+        // ── Broadcast temps réel — notifier l'agent et le propriétaire ────────
+        try {
+            broadcast(new BienStatutChanged($bien->fresh()));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[AdminDossier] Broadcast withdraw échoué : ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'L\'annonce a été retirée avec succès.',

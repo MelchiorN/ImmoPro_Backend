@@ -39,16 +39,23 @@ return [
     // Le Service Account est lu depuis storage/app/firebase/immopro.json
     // Aucune clé à configurer ici.
 
+    // ── Google Gemini AI ─────────────────────────────────────────────────────
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model'   => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+    ],
+
     // ── Semoa CashPay API V2.0 ────────────────────────────────────────────────
     'semoa' => [
-        'env'           => env('SEMOA_ENV', 'sandbox'),
-        'base_url'      => env('SEMOA_BASE_URL', 'https://sandbox.semoa-payments.com/api'),
-        'username'      => env('SEMOA_USERNAME'),
-        'password'      => env('SEMOA_PASSWORD'),
-        'client_id'     => env('SEMOA_CLIENT_ID'),
-        'client_secret' => env('SEMOA_CLIENT_SECRET'),
-        'ledger'        => env('SEMOA_LEDGER', 'de7a9b8e-74be-4ced-a263-7323e242cf19'),
-        'simulate'      => env('SEMOA_SIMULATE', false),
+        'env'              => env('SEMOA_ENV', 'sandbox'),
+        'base_url'         => env('SEMOA_BASE_URL', 'https://sandbox.semoa-payments.com/api'),
+        'username'         => env('SEMOA_USERNAME'),
+        'password'         => env('SEMOA_PASSWORD'),
+        'client_id'        => env('SEMOA_CLIENT_ID'),
+        'client_secret'    => env('SEMOA_CLIENT_SECRET'),
+        'ledger'           => env('SEMOA_LEDGER', 'de7a9b8e-74be-4ced-a263-7323e242cf19'),
+        'webhook_base_url' => env('SEMOA_WEBHOOK_BASE_URL', env('APP_URL')),
+        'simulate'         => env('SEMOA_SIMULATE', false),
     ],
 
 ];

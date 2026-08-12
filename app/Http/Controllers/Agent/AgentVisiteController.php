@@ -458,8 +458,10 @@ class AgentVisiteController extends Controller
         }
 
         // ── Broadcast temps réel ──────────────────────────────────────────────
+        // Pas de ->toOthers() : l'agent doit aussi recevoir l'event pour que
+        // sa propre page visites/calendrier se mette à jour en temps réel.
         try {
-            broadcast(new VisiteStatutChanged($visite->load('bien')))->toOthers();
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('[AgentVisiteController] Broadcast update échoué: ' . $e->getMessage());
         }
@@ -540,7 +542,7 @@ class AgentVisiteController extends Controller
 
         $request->validate([
             'creneaux'                   => 'required|array|min:1|max:10',
-            'creneaux.*.date_debut'      => 'required|date|after:now',
+            'creneaux.*.date_debut'      => 'required|date',
             'creneaux.*.duree_minutes'   => 'nullable|integer|min:15|max:480',
             'creneaux.*.creneau_libre_id'=> 'nullable|uuid|exists:creneaux_visite,id',
             'note'                       => 'nullable|string|max:500',
@@ -562,6 +564,13 @@ class AgentVisiteController extends Controller
 
         foreach ($request->creneaux as $item) {
             $debut = Carbon::parse($item['date_debut']);
+
+            if ($debut->isBefore(now()->subMinutes(5))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Le créneau du {$debut->format('d/m/Y à H:i')} est dans le passé. Veuillez choisir un créneau futur.",
+                ], 422);
+            }
 
             if (isset($item['duree_minutes']) && $item['duree_minutes']) {
                 $dureeRef = (int) $item['duree_minutes'];
@@ -625,8 +634,10 @@ class AgentVisiteController extends Controller
         }
 
         // ── Broadcast temps réel ──────────────────────────────────────────────
+        // Note : on n'utilise PAS ->toOthers() ici car l'agent est lui-même
+        // destinataire de l'event (sa page visites doit se mettre à jour).
         try {
-            broadcast(new VisiteStatutChanged($visite->load('bien')))->toOthers();
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('[AgentVisiteController] Broadcast créneaux client échoué: ' . $e->getMessage());
         }
@@ -823,15 +834,17 @@ class AgentVisiteController extends Controller
 
     private function formatCreneau(CreneauVisite $c): array
     {
+        $duree = ($c->date_debut && $c->date_fin)
+            ? (int) $c->date_debut->diffInMinutes($c->date_fin)
+            : null;
+
         return [
             'id'            => $c->id,
             'bien_id'       => $c->bien_id,
             'bien_titre'    => $c->bien?->titre,
             'date_debut'    => $c->date_debut?->toIso8601String(),
             'date_fin'      => $c->date_fin?->toIso8601String(),
-            'duree_minutes' => $c->date_debut && $c->date_fin
-                ? (int) $c->date_debut->diffInMinutes($c->date_fin)
-                : null,
+            'duree_minutes' => $duree > 0 ? $duree : 60, // fallback 60 min si calcul invalide
             'statut'        => $c->statut,
             'visite_id'     => $c->visite_id,
         ];

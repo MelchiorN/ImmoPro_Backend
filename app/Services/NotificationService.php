@@ -47,6 +47,26 @@ class NotificationService
         }
     }
 
+    /**
+     * Envoie une notification push de recommandation de bien à un utilisateur.
+     */
+    public function notifyRecommandationBien(User $user, \App\Models\Bien $bien, string $raison = ''): void
+    {
+        $titre   = " Nouveau bien recommandé pour vous !";
+        $message = !empty($raison) 
+            ? "ImmoPro IA : {$bien->titre} — {$raison}" 
+            : "Découvrez {$bien->titre} à " . number_format($bien->prix, 0, ',', ' ') . " FCFA.";
+
+        $data = [
+            'type'        => 'RECOMMENDATION',
+            'bien_id'     => (string) $bien->id,
+            'property_id' => (string) $bien->id,
+            'click_action'=> 'FLUTTER_NOTIFICATION_CLICK',
+        ];
+
+        $this->notify($user, 'RECOMMENDATION', $titre, $message, $data);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 1. Notification in-app
     // ─────────────────────────────────────────────────────────────────────────

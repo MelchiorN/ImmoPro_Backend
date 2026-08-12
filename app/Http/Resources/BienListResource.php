@@ -17,8 +17,9 @@ class BienListResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $user   = $request->user();
-        $hasGps = $this->resource->hasPaidVisit($user);
+        $user         = $request->user();
+        $hasGps       = $this->resource->canSeeGps($user);
+        $hasPaidVisit = $this->resource->hasPaidVisit($user);
 
         // Photo principale uniquement
         $photo = $this->medias
@@ -30,6 +31,7 @@ class BienListResource extends JsonResource
 
         return [
             'id'               => $this->id,
+            'user_id'          => $this->user_id,
             'type_bien'        => $this->type_bien,
             'categorie_nom'    => $this->getCategorie()?->nom ?? ucfirst(str_replace('_', ' ', $this->type_bien)),
             'type_transaction' => $this->type_transaction,
@@ -38,7 +40,7 @@ class BienListResource extends JsonResource
             'prix'             => (float) $this->prix,
             'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
             'prix_visite'      => $this->resource->getPrixVisiteEffectif(),
-            'visite_payee'     => $hasGps,
+            'visite_payee'     => $hasPaidVisit,
             'unite_prix'       => $this->unite_prix,
             'avance_mois'      => $this->avance_mois,
             'caution'          => $this->caution ? (float) $this->caution : null,
