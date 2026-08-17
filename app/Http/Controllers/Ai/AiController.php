@@ -72,7 +72,7 @@ class AiController extends Controller
 
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/ai/recommandations
-    // Corps : { bien_ids?: [], limit?: 10 }  (optionnel — filtre biens à analyser)
+    // Corps : { bien_ids?: [], limit?: 10, lat?: float, lng?: float, rayon_km?: float }
     // ─────────────────────────────────────────────────────────────────────────
 
     public function recommandations(Request $request): JsonResponse
@@ -80,12 +80,18 @@ class AiController extends Controller
         $request->validate([
             'limit'    => 'nullable|integer|min:1|max:50',
             'bien_ids' => 'nullable|array|max:50',
+            'lat'      => 'nullable|numeric|between:-90,90',
+            'lng'      => 'nullable|numeric|between:-180,180',
+            'rayon_km' => 'nullable|numeric|between:1,100',
         ]);
 
         $user  = $request->user();
         $limit = $request->integer('limit', 20);
+        $lat   = $request->filled('lat')  ? (float) $request->input('lat')  : null;
+        $lng   = $request->filled('lng')  ? (float) $request->input('lng')  : null;
+        $rayon = $request->filled('rayon_km') ? (float) $request->input('rayon_km') : 15.0;
 
-        // Récupérer les préférences de l'utilisateur
+        // ── Préférences déclarées ─────────────────────────────────────────────
         $preferences = [];
         if ($user->preference) {
             $preferences = [
@@ -96,7 +102,7 @@ class AiController extends Controller
             ];
         }
 
-        // Récupérer les favoris de l'utilisateur pour le comportement implicite
+        // ── Favoris (signal fort d'intention) ─────────────────────────────────
         $favoris = $user->favoris()
             ->select(['biens.id', 'biens.titre', 'biens.type_bien', 'biens.prix', 'biens.adresse'])
             ->orderBy('favoris.created_at', 'desc')
@@ -104,23 +110,70 @@ class AiController extends Controller
             ->get()
             ->toArray();
 
-        // Récupérer les biens publiés
-        $query = Bien::where('statut', 'publie')
-            ->select([
-                'id', 'titre', 'type_bien', 'type_transaction',
-                'prix', 'unite_prix', 'surface', 'adresse',
-                'nb_pieces', 'caracteristiques',
-            ])
-            ->latest('publie_le')
-            ->limit($limit);
+        // ── Historique de recherche ────────────────────────────────────────────
+        $historiqueRecherche = [];
+        if (class_exists(\App\Models\HistoriqueRecherche::class)) {
+            $historiqueRecherche = $user->historiqueRecherches()
+                ->select(['query_text', 'type_bien', 'type_transaction', 'ville', 'prix_min', 'prix_max', 'created_at'])
+                ->latest()
+                ->take(10)
+                ->get()
+                ->toArray();
+        }
+
+        // ── Localisation GPS actuelle ─────────────────────────────────────────
+        $localisationActuelle = null;
+        if ($lat !== null && $lng !== null) {
+            $localisationActuelle = [
+                'lat'      => $lat,
+                'lng'      => $lng,
+                'rayon_km' => $rayon,
+            ];
+        }
+
+        // ── Cold start : aucune donnée personnelle ─────────────────────────────
+        $hasDonnees = !empty($preferences)
+                   || !empty($favoris)
+                   || !empty($historiqueRecherche)
+                   || $localisationActuelle !== null;
+
+        // ── Requête biens publiés ─────────────────────────────────────────────
+        if ($lat !== null && $lng !== null) {
+            // Avec filtre géographique Haversine — on inclut la distance dans les données
+            $query = Bien::where('statut', 'publie')
+                ->selectRaw("
+                    id, titre, type_bien, type_transaction,
+                    prix, unite_prix, surface, adresse,
+                    nb_pieces, caracteristiques, latitude, longitude,
+                    publie_le,
+                    (6371 * acos(
+                        cos(radians(?)) * cos(radians(latitude))
+                        * cos(radians(longitude) - radians(?))
+                        + sin(radians(?)) * sin(radians(latitude))
+                    )) AS distance_km
+                ", [$lat, $lng, $lat])
+                ->having('distance_km', '<=', $rayon)
+                ->orderBy('distance_km');
+        } else {
+            $query = Bien::where('statut', 'publie')
+                ->select([
+                    'id', 'titre', 'type_bien', 'type_transaction',
+                    'prix', 'unite_prix', 'surface', 'adresse',
+                    'nb_pieces', 'caracteristiques', 'latitude', 'longitude',
+                    'publie_le',
+                ])
+                ->latest('publie_le');
+        }
+
+        $query->limit($limit);
 
         if ($request->filled('bien_ids')) {
             $query->whereIn('id', $request->input('bien_ids'));
         }
 
-        // Filtre léger sur budget si les préférences existent
+        // Filtre léger sur budget si préférences existent
         if (!empty($preferences['budget_max'])) {
-            $query->where('prix', '<=', $preferences['budget_max'] * 1.25); // +25% marge
+            $query->where('prix', '<=', $preferences['budget_max'] * 1.25);
         }
 
         $biens = $query->get()->map(fn ($b) => [
@@ -133,115 +186,226 @@ class AiController extends Controller
             'surface'          => (float) $b->surface,
             'adresse'          => $b->adresse,
             'nb_pieces'        => $b->nb_pieces,
+            'publie_le'        => $b->publie_le,
+            'distance_km'      => isset($b->distance_km) ? round((float) $b->distance_km, 2) : null,
         ])->toArray();
 
         if (empty($biens)) {
             return response()->json([
                 'success'         => true,
                 'recommandations' => [],
-                'message'         => 'Aucun bien disponible pour le moment.',
+                'message'         => 'Aucun bien disponible dans votre zone pour le moment.',
             ]);
         }
 
-        try {
-            $reponseRaw = $this->gemini->recommander($biens, $preferences, $favoris);
+        // ── Rediriger vers cold start si aucune donnée personnelle ───────────
+        if (!$hasDonnees) {
+            return $this->recommandationsColdStart($biens);
+        }
 
-            // Tenter de parser le JSON retourné par Gemini
+        try {
+            $reponseRaw = $this->gemini->recommander(
+                $biens,
+                $preferences,
+                $favoris,
+                $historiqueRecherche,
+                $localisationActuelle
+            );
+
             $parsed = $this->parseJsonResponse($reponseRaw);
-            $recs = $parsed['recommandations'] ?? [];
+            $recs   = $parsed['recommandations'] ?? [];
 
             if (empty($recs)) {
-                $recs = $this->genererRecommandationsLocales($biens, $preferences);
+                $recs = $this->genererRecommandationsLocales($biens, $preferences, $favoris, $lat, $lng);
             }
 
-            // Récupérer tous les détails des biens recommandés en 1 seule requête SQL
-            $bienIds = array_column($recs, 'bien_id');
-            $biensDetails = Bien::whereIn('id', $bienIds)->get()->keyBy('id');
+            $bienIds      = array_column($recs, 'bien_id');
+            $biensDetails = Bien::whereIn('id', $bienIds)->with(['medias'])->get()->keyBy('id');
 
-            $recommandationsEnrichies = array_filter(array_map(function ($rec) use ($biensDetails) {
+            $recommandationsEnrichies = array_values(array_filter(array_map(function ($rec) use ($biensDetails) {
                 $b = $biensDetails->get($rec['bien_id']);
                 if (!$b) return null;
                 $rec['bien'] = $b->toArray();
                 return $rec;
-            }, $recs));
+            }, $recs)));
 
             return response()->json([
                 'success'         => true,
                 'source'          => !empty($parsed['recommandations']) ? 'gemini_ia' : 'local_fallback',
-                'recommandations' => array_values($recommandationsEnrichies),
+                'recommandations' => $recommandationsEnrichies,
                 'message'         => $parsed['message'] ?? 'Voici nos recommandations personnalisées pour vous.',
             ]);
 
         } catch (\Throwable $e) {
-            Log::warning('[AI Recommandations] Gemini indisponible ou limite atteinte, fallback local activé', [
+            Log::warning('[AI Recommandations] Gemini indisponible, fallback local activé', [
                 'user_id' => $user->id,
                 'error'   => $e->getMessage(),
             ]);
 
-            // Moteur de secours local (calcul de score pondéré)
             return response()->json([
                 'success'         => true,
                 'source'          => 'local_fallback',
-                'recommandations' => $this->genererRecommandationsLocales($biens, $preferences),
+                'recommandations' => $this->genererRecommandationsLocales($biens, $preferences, $favoris, $lat, $lng),
                 'message'         => 'Recommandations calculées selon vos préférences.',
             ]);
         }
     }
 
     /**
+     * Cold start : recommandations pour un utilisateur sans aucune donnée personnelle.
+     * Stratégie : 60% popularité globale (nb favoris) + 40% fraîcheur (date publication).
+     */
+    private function recommandationsColdStart(array $biens): JsonResponse
+    {
+        $bienIds    = array_column($biens, 'id');
+        $popularite = \App\Models\Favori::whereIn('bien_id', $bienIds)
+            ->selectRaw('bien_id, COUNT(*) as nb_favoris')
+            ->groupBy('bien_id')
+            ->pluck('nb_favoris', 'bien_id')
+            ->toArray();
+
+        $maxFavoris = !empty($popularite) ? max($popularite) : 1;
+        $now        = now();
+
+        $scored = [];
+        foreach ($biens as $bien) {
+            $joursPub       = $bien['publie_le']
+                ? \Carbon\Carbon::parse($bien['publie_le'])->diffInDays($now)
+                : 60;
+            $scoreFraicheur  = max(0.3, 1 - ($joursPub / 60) * 0.7);
+            $nbFavoris       = $popularite[$bien['id']] ?? 0;
+            $scorePopularite = $maxFavoris > 0 ? ($nbFavoris / $maxFavoris) : 0;
+            $score           = round(0.6 * $scorePopularite + 0.4 * $scoreFraicheur, 2);
+            $score           = max(0.50, min(0.95, $score));
+
+            $scored[] = [
+                'bien_id' => $bien['id'],
+                'score'   => $score,
+                'raison'  => $nbFavoris > 0
+                    ? "{$nbFavoris} personne(s) ont mis ce bien en favori — très apprécié du moment."
+                    : 'Bien récemment publié susceptible de vous intéresser.',
+            ];
+        }
+
+        usort($scored, fn ($a, $b) => $b['score'] <=> $a['score']);
+        $top5 = array_slice($scored, 0, 5);
+
+        $biensDetails = Bien::whereIn('id', array_column($top5, 'bien_id'))
+            ->with(['medias'])
+            ->get()->keyBy('id');
+
+        $enrichis = array_values(array_filter(array_map(function ($rec) use ($biensDetails) {
+            $b = $biensDetails->get($rec['bien_id']);
+            if (!$b) return null;
+            $rec['bien'] = $b->toArray();
+            return $rec;
+        }, $top5)));
+
+        return response()->json([
+            'success'         => true,
+            'source'          => 'cold_start_popularity',
+            'recommandations' => $enrichis,
+            'message'         => 'Voici les biens les plus appréciés du moment sur ImmoPro.',
+        ]);
+    }
+
+    /**
      * Moteur de scoring local sécurisé (Weighted Recommendation Engine).
      * Utilisé comme fallback si Gemini est indisponible ou s'il n'y a pas de quota.
+     * Critères : budget (30%), type bien (20%), localisation préférences (15%),
+     *            similarité favoris (15%), proximité GPS (25% si dispo), surface (10%).
      */
-    private function genererRecommandationsLocales(array $biens, array $preferences): array
+    private function genererRecommandationsLocales(
+        array  $biens,
+        array  $preferences,
+        array  $favoris = [],
+        ?float $userLat = null,
+        ?float $userLng = null
+    ): array
     {
         $scored = [];
 
-        $budgetMax = $preferences['budget_max'] ?? null;
-        $budgetMin = $preferences['budget_min'] ?? null;
-        $typesPref = $preferences['types_biens_preferes'] ?? [];
+        $budgetMax  = $preferences['budget_max'] ?? null;
+        $budgetMin  = $preferences['budget_min'] ?? null;
+        $typesPref  = array_map('strtolower', $preferences['types_biens_preferes'] ?? []);
         $villesPref = $preferences['villes_preferees'] ?? [];
 
+        // Extraire les signatures des favoris pour la comparaison de similarité
+        $favoriTypes  = array_map('strtolower', array_column($favoris, 'type_bien'));
+        $favoriPrix   = array_filter(array_column($favoris, 'prix'));
+        $avgFavoriPrix = !empty($favoriPrix) ? array_sum($favoriPrix) / count($favoriPrix) : null;
+
         foreach ($biens as $bien) {
-            $score = 0.50; // Score de base 50%
+            $score   = 0.45; // Score de base
             $raisons = [];
 
-            // Critère 1 : Budget (pondération 40%)
+            // Critère 1 : Budget (30%)
             if ($budgetMax && $bien['prix'] <= $budgetMax) {
-                $score += 0.35;
-                $raisons[] = 'Prix en dessous de votre budget max';
+                $score += 0.30;
+                $raisons[] = 'Prix dans votre budget';
             } elseif ($budgetMax && $bien['prix'] <= $budgetMax * 1.15) {
-                $score += 0.15;
-                $raisons[] = 'Prix proche de votre budget';
+                $score += 0.12;
+                $raisons[] = 'Prix légèrement au-dessus de votre budget';
             }
 
-            // Critère 2 : Type de bien (pondération 30%)
-            if (!empty($typesPref) && in_array(strtolower($bien['type_bien']), array_map('strtolower', $typesPref))) {
-                $score += 0.25;
-                $raisons[] = 'Type de bien correspondant';
+            // Critère 2 : Type de bien (20%)
+            if (!empty($typesPref) && in_array(strtolower($bien['type_bien'] ?? ''), $typesPref)) {
+                $score += 0.20;
+                $raisons[] = 'Type de bien correspondant à vos préférences';
             }
 
-            // Critère 3 : Localisation (pondération 20%)
+            // Critère 3 : Localisation déclarée dans les préférences (15%)
             if (!empty($villesPref) && !empty($bien['adresse'])) {
                 foreach ($villesPref as $v) {
-                    if (str_ireplace($v, '', $bien['adresse']) !== $bien['adresse']) {
-                        $score += 0.20;
-                        $raisons[] = 'Localisation souhaitée';
+                    if (stripos($bien['adresse'], $v) !== false) {
+                        $score += 0.15;
+                        $raisons[] = "Situé à {$v}, une de vos villes préférées";
                         break;
                     }
                 }
             }
 
-            // Normaliser le score max à 0.98
+            // Critère 4 : Similarité avec les favoris (15%)
+            if (!empty($favoriTypes) && in_array(strtolower($bien['type_bien'] ?? ''), $favoriTypes)) {
+                $score += 0.10;
+                $raisons[] = 'Même type que vos biens favoris';
+
+                // Bonus si la gamme de prix est similaire (±30%)
+                if ($avgFavoriPrix && $bien['prix'] > 0) {
+                    $ratio = $bien['prix'] / $avgFavoriPrix;
+                    if ($ratio >= 0.70 && $ratio <= 1.30) {
+                        $score += 0.05;
+                        $raisons[] = 'Gamme de prix similaire à vos favoris';
+                    }
+                }
+            }
+
+            // Critère 5 : Proximité GPS (25% si coordonnées dispo)
+            if ($userLat !== null && $userLng !== null && isset($bien['distance_km']) && $bien['distance_km'] !== null) {
+                $dist = (float) $bien['distance_km'];
+                if ($dist <= 3) {
+                    $score += 0.25;
+                    $raisons[] = 'Très proche de vous (' . round($dist, 1) . ' km)';
+                } elseif ($dist <= 8) {
+                    $score += 0.18;
+                    $raisons[] = 'À ' . round($dist, 1) . ' km de votre position';
+                } elseif ($dist <= 15) {
+                    $score += 0.10;
+                    $raisons[] = 'À ' . round($dist, 1) . ' km de votre position';
+                }
+            }
+
             $score = min(0.98, round($score, 2));
 
             $scored[] = [
                 'bien_id' => $bien['id'],
                 'score'   => $score,
-                'raison'  => !empty($raisons) ? implode(', ', $raisons) . '.' : 'Bien récent susceptible de vous intéresser.',
+                'raison'  => !empty($raisons)
+                    ? implode(', ', $raisons) . '.'
+                    : 'Bien récent susceptible de vous intéresser.',
             ];
         }
 
-        // Tri par score décroissant
         usort($scored, fn ($a, $b) => $b['score'] <=> $a['score']);
 
         return array_slice($scored, 0, 5);

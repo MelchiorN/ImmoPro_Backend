@@ -18,6 +18,10 @@ class BienPublicController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        // Tente l'authentification silencieuse pour enregistrer l'historique de recherche
+        // sans bloquer les requêtes anonymes (pas de 401 si token absent).
+        \Auth::shouldUse('sanctum');
+
         $request->validate([
             'type_bien'        => 'nullable|string|max:100',
             'type_transaction' => 'nullable|in:vente,location,colocation',
@@ -96,6 +100,30 @@ class BienPublicController extends Controller
         };
 
         $biens = $query->paginate($request->query('per_page', 15));
+
+        // ── Enregistrement silencieux de la recherche (utilisateurs auth uniquement) ──
+        // Alimente l'historique utilisé par le moteur de recommandation IA.
+        if ($request->user()) {
+            try {
+                \App\Models\HistoriqueRecherche::create([
+                    'user_id'          => $request->user()->id,
+                    'query_text'       => $request->query('search'),
+                    'type_bien'        => $request->query('type_bien'),
+                    'type_transaction' => $request->query('type_transaction'),
+                    'prix_min'         => $request->query('prix_min'),
+                    'prix_max'         => $request->query('prix_max'),
+                    'ville'            => $request->query('ville'),
+                    'lat'              => $request->query('lat'),
+                    'lng'              => $request->query('lng'),
+                    'nb_resultats'     => $biens->total(),
+                ]);
+
+                // Garder uniquement les 50 dernières recherches pour cet utilisateur
+                \App\Models\HistoriqueRecherche::purgerPourUtilisateur($request->user()->id, 50);
+            } catch (\Throwable) {
+                // Ne jamais bloquer la recherche si l'enregistrement échoue
+            }
+        }
 
         return response()->json([
             'success' => true,

@@ -185,11 +185,13 @@ class CategorieSeeder extends Seeder
                 ],
                 'attributs' => [
                     // Chambres
-                    ['nom_champ' => 'nb_chambres',               'label_affiche' => 'Nombre de chambres',                  'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => true],
-                    ['nom_champ' => 'nb_chambres_sdb_privative', 'label_affiche' => 'Chambres avec WC + Douche privatifs', 'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => false],
+                    ['nom_champ' => 'nb_chambres',                   'label_affiche' => 'Nombre de chambres',                       'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => true],
+                    ['nom_champ' => 'nb_chambres_sdb_privative',     'label_affiche' => 'Chambres avec WC + Douche privatifs',      'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => false],
+                    ['nom_champ' => 'nb_chambres_douche_privative',  'label_affiche' => 'Chambres avec douche privative seule',     'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => false],
+                    ['nom_champ' => 'nb_chambres_wc_privatif',       'label_affiche' => 'Chambres avec WC privatif seul',           'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => false],
                     // Pieces de vie
-                    ['nom_champ' => 'wc_visiteur',               'label_affiche' => 'WC visiteur',                         'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
-                    ['nom_champ' => 'salon',                     'label_affiche' => 'Salon',                               'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
+                    ['nom_champ' => 'nb_salons',                     'label_affiche' => 'Nombre de salons',                        'type_champ' => 'nombre',  'obligatoire' => false, 'est_socle' => true],
+                    ['nom_champ' => 'wc_visiteur',                   'label_affiche' => 'WC visiteur',                             'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
                     ['nom_champ' => 'terrasse',                  'label_affiche' => 'Terrasse / Balcon',                   'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],
                     // WC/Douche externe - condition frontend: wc_douche_externe = true pour wc_douche_externe_usage
                     ['nom_champ' => 'wc_douche_externe',         'label_affiche' => 'WC / Douche externe',                 'type_champ' => 'booleen', 'obligatoire' => false, 'est_socle' => false],

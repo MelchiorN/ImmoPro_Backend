@@ -110,42 +110,12 @@ class BienDescriptionService
             return $bien->desc_personnalisee;
         }
 
-        // 2. Tenter la génération dynamique via Gemini AI
-        try {
-            $geminiService = $this->gemini ?? app(GeminiService::class);
-            
-            // Note ou description manuelle existante (s'il y en a une)
-            $notes = $bien->description ?? '';
-            
-            $descriptionGemini = $geminiService->enrichirDescription($notes, [
-                'type_bien'        => $bien->type_bien,
-                'type_transaction' => $bien->type_transaction,
-                'ville'            => $bien->ville ?? 'Lomé',
-                'quartier'         => $bien->adresse ?? ($bien->quartier ?? null),
-                'prix'             => (float) $bien->prix,
-                'unite_prix'       => $bien->unite_prix,
-                'surface'          => $bien->surface ? (float) $bien->surface : null,
-                'superficie'       => $bien->superficie ? (float) $bien->superficie : null,
-                'nb_pieces'        => $bien->nb_pieces,
-                'caracteristiques' => $bien->caracteristiques ?? [],
-            ]);
-
-            if (!empty($descriptionGemini)) {
-                return $descriptionGemini;
-            }
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('[BienDescriptionService] Gemini indisponible, fallback vers règles.', [
-                'bien_id' => $bien->id,
-                'error'   => $e->getMessage(),
-            ]);
-        }
-
-        // 3. Description manuelle du propriétaire
+        // 2. Description manuelle du propriétaire
         if (!empty($bien->description)) {
             return $bien->description;
         }
 
-        // 4. Génération automatique par règles
+        // 3. Génération automatique par règles
         return $this->construire($bien);
     }
 

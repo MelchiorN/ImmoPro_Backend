@@ -101,6 +101,11 @@ class User extends Authenticatable
                     ->withTimestamps();
     }
 
+    public function historiqueRecherches(): HasMany
+    {
+        return $this->hasMany(\App\Models\HistoriqueRecherche::class);
+    }
+
     // ─── Abonnements ──────────────────────────────────────────────────────────
 
     public function abonnements(): HasMany

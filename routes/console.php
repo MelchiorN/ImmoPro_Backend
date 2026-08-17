@@ -15,3 +15,6 @@ Schedule::command('sla:check')->everyFifteenMinutes();
 
 // Rappels de visite : agent + propriétaire (email + push + in-app)
 Schedule::command('visites:rappels')->everyFifteenMinutes();
+
+// Nettoyage historique de recherche : garde les 50 dernières par utilisateur, supprime > 180 jours
+Schedule::command('historique:purger')->weekly();

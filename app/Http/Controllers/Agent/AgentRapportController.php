@@ -224,18 +224,27 @@ class AgentRapportController extends Controller
         if ($request->decision === 'approuver') {
             $rapport->update(['statut' => Rapport::STATUT_VALIDE]);
 
-            // Calculer le prix de visite
+            // Calculer le prix de visite.
+            // Priorité :
+            //   1. prix_visite saisi explicitement par l'agent dans le formulaire
+            //   2. Calcul automatique depuis la catégorie (pourcentage ou fixe)
+            //   3. Fallback : 0 (bloqué plus bas si toujours à 0)
             $prixVisite = 0;
-            $cat = $bien->getCategorie();
-            if ($cat) {
-                if ($cat->visite_tarif_type === 'pourcentage') {
-                    $prixVisite = $cat->calculerPrixVisite((float) $bien->prix);
-                } else {
-                    $prixVisite = (float) ($cat->visite_tarif_fixe ?? $request->input('prix_visite', 0));
-                }
-            }
-            if ($request->has('prix_visite')) {
+
+            // Priorité 1 — saisie explicite de l'agent (toujours prioritaire)
+            if ($request->filled('prix_visite')) {
                 $prixVisite = (float) $request->input('prix_visite');
+            } else {
+                // Priorité 2 — calcul depuis la catégorie
+                $cat = $bien->getCategorie();
+                if ($cat) {
+                    if ($cat->visite_tarif_type === 'pourcentage' && $cat->visite_pourcentage > 0) {
+                        $prixVisite = $cat->calculerPrixVisite((float) $bien->prix);
+                    } elseif ($cat->visite_tarif_type === 'fixe_manuel' && (float) $cat->visite_tarif_fixe > 0) {
+                        $prixVisite = (float) $cat->visite_tarif_fixe;
+                    }
+                    // Si tarif_fixe = 0 ou null sur la catégorie (type "autre"), $prixVisite reste 0
+                }
             }
 
             $publicationAuto = (bool) ($bien->publication_auto ?? true);

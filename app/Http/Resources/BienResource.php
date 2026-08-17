@@ -34,10 +34,11 @@ class BienResource extends JsonResource
             'categorie_nom'    => $this->getCategorie()?->nom ?? ucfirst(str_replace('_', ' ', $this->type_bien)),
             'type_transaction' => $this->type_transaction,
 
-            // Infos de base
-            'titre'            => $this->titre,
-            'description'      => $descriptionService->generer($this->resource),
-            'prix'             => (float) $this->prix,
+            'titre'                 => $this->titre,
+            'description'           => $descriptionService->generer($this->resource),
+            'description_originale' => $this->description,
+            'desc_personnalisee'    => $this->desc_personnalisee,
+            'prix'                  => (float) $this->prix,
             'prix_public'      => $this->prix_public ? (float) $this->prix_public : (float) $this->prix,
             'prix_visite'      => $this->resource->getPrixVisiteEffectif(),
             'visite_payee'     => $hasPaidVisit,   // true si la visite a été payée

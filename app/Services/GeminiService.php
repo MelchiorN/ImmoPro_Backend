@@ -62,15 +62,28 @@ class GeminiService
     /**
      * Génère des recommandations de biens personnalisées pour un utilisateur.
      *
-     * @param  array  $biens      Liste des biens disponibles (simplifiée)
-     * @param  array  $preferences  Préférences utilisateur (budget, type, ville...)
-     * @param  array  $historique   Biens consultés récemment (optionnel)
+     * @param  array      $biens               Liste des biens disponibles (simplifiée)
+     * @param  array      $preferences         Préférences utilisateur (budget, type, ville…)
+     * @param  array      $favoris             Biens mis en favori par l'utilisateur (SIGNAL FORT)
+     * @param  array      $historiqueRecherche Dernières recherches effectuées (termes, filtres…)
+     * @param  array|null $localisationActuelle Coordonnées GPS réelles { lat, lng, rayon_km }
      * @return string JSON de recommandations ou message formaté
      */
-    public function recommander(array $biens, array $preferences = [], array $historique = []): string
-    {
+    public function recommander(
+        array  $biens,
+        array  $preferences         = [],
+        array  $favoris             = [],
+        array  $historiqueRecherche = [],
+        ?array $localisationActuelle = null
+    ): string {
         $systemInstruction = $this->buildRecommandationSystemPrompt();
-        $prompt = $this->buildRecommandationPrompt($biens, $preferences, $historique);
+        $prompt = $this->buildRecommandationPrompt(
+            $biens,
+            $preferences,
+            $favoris,
+            $historiqueRecherche,
+            $localisationActuelle
+        );
 
         $contents = [
             [
@@ -282,30 +295,67 @@ Retourne UNIQUEMENT un JSON valide avec ce format :
   ],
   "message": "Voici les 3 biens qui correspondent le mieux à vos critères."
 }
-Critères de scoring : budget (40%), localisation (30%), type de bien (20%), surface (10%).
+Critères de scoring (total 100%) :
+- Budget : 30% — le prix correspond-il au budget déclaré ou aux recherches passées ?
+- Localisation : 25% — proche de la position GPS actuelle ou des villes recherchées/préférées ?
+- Favoris similaires : 15% — ressemble-t-il aux biens mis en favori (même type, quartier, gamme de prix) ?
+- Type de bien : 20% — correspond au type préféré ou aux recherches récentes ?
+- Surface : 10% — surface cohérente avec les recherches passées ou les préférences ?
+
+IMPORTANT : Les favoris de l'utilisateur sont un SIGNAL FORT d'intention d'achat/location.
+Un bien similaire à un favori (même type + même quartier + gamme de prix proche) doit recevoir un score élevé.
 PROMPT;
     }
 
     /**
      * Construit le prompt de recommandation avec les données réelles.
      */
-    private function buildRecommandationPrompt(array $biens, array $preferences, array $historique): string
-    {
-        $biensJson       = json_encode($biens, JSON_UNESCAPED_UNICODE);
+    private function buildRecommandationPrompt(
+        array  $biens,
+        array  $preferences,
+        array  $favoris,
+        array  $historiqueRecherche = [],
+        ?array $localisationActuelle = null
+    ): string {
+        $biensJson       = json_encode($biens,       JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         $preferencesJson = json_encode($preferences, JSON_UNESCAPED_UNICODE);
-        $historiqueJson  = json_encode($historique, JSON_UNESCAPED_UNICODE);
+        $favorisJson     = json_encode($favoris,     JSON_UNESCAPED_UNICODE);
+        $historiqueJson  = json_encode($historiqueRecherche, JSON_UNESCAPED_UNICODE);
+
+        $localisationSection = '';
+        if ($localisationActuelle) {
+            $localisationJson    = json_encode($localisationActuelle, JSON_UNESCAPED_UNICODE);
+            $localisationSection = <<<GPS
+
+Localisation GPS actuelle de l'utilisateur (priorité haute pour la proximité) :
+{$localisationJson}
+
+GPS;
+        }
+
+        $favorisSection = empty($favoris)
+            ? "Favoris : aucun pour l'instant (nouvel utilisateur ou n'a pas encore mis de biens en favori)."
+            : "Favoris de l'utilisateur (SIGNAL FORT — biens explicitement aimés) :\n{$favorisJson}";
+
+        $historiqueSection = empty($historiqueRecherche)
+            ? "Historique de recherche : aucun enregistré."
+            : "Historique des recherches récentes (termes, filtres, villes cherchées) :\n{$historiqueJson}";
+
+        $preferencesSection = empty($preferences)
+            ? "Préférences déclarées : aucune (l'utilisateur n'a pas encore configuré ses préférences)."
+            : "Préférences déclarées :\n{$preferencesJson}";
 
         return <<<PROMPT
-Préférences de l'utilisateur :
-{$preferencesJson}
+{$preferencesSection}
 
-Biens récemment consultés (contexte) :
-{$historiqueJson}
+{$favorisSection}
 
+{$historiqueSection}
+{$localisationSection}
 Biens disponibles à analyser :
 {$biensJson}
 
-Recommande les 3 meilleurs biens selon les préférences. Respecte strictement le format JSON demandé.
+Recommande les 3 meilleurs biens en te basant sur TOUS les signaux ci-dessus. Respecte strictement le format JSON demandé.
 PROMPT;
     }
 }

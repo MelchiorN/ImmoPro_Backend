@@ -29,12 +29,12 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             // UserSeeder::class,
-            // CategorieSeeder::class,
+            CategorieSeeder::class,
             // ConfigPublicationSeeder::class,  // Types transaction, unités prix, types docs, rôles déposant
             // BienSeeder::class,
             // ContratTemplateSeeder::class,
             // PlanAbonnementSeeder::class,
-            DescPersonnaliseeSeeder::class,
+            // DescPersonnaliseeSeeder::class,
             // DocumentLegalSeeder::class,     // CGU, CGV, Politique de confidentialité, À propos
         ]);
     }
