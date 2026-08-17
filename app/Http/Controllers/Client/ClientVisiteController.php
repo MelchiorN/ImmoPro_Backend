@@ -669,7 +669,7 @@ class ClientVisiteController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Paiement confirmé. Vous avez maintenant accès à la localisation du bien.',
+                'message' => 'Paiement avec succès. Votre demande de visite a bien été envoyée.',
                 'data'    => [
                     'visite_id'    => $visite->id,
                     'visite_payee' => true,

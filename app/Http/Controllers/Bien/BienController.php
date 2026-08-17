@@ -214,80 +214,9 @@ class BienController extends Controller
 
             DB::commit();
 
-            // ── Notifier le client qui soumet ─────────────────────────────────
+            // ── Notifier le client, tous les agents et les admins ──────────────
             try {
-                $notif = app(\App\Services\NotificationService::class);
-
-                $emailBody = \App\Services\EmailTemplateService::generic(
-                    titre: '📋 Dossier soumis avec succès',
-                    intro: "Votre dossier immobilier a bien été reçu et est maintenant en cours de vérification par notre équipe. Vous serez notifié dès qu'une décision sera prise.",
-                    rows: [
-                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $bien->titre],
-                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $bien->adresse],
-                        ['icon' => '🔄', 'label' => 'Transaction', 'value' => ucfirst($bien->type_transaction)],
-                        ['icon' => '⏳', 'label' => 'Statut',      'value' => 'En attente de vérification'],
-                    ],
-                    outro: 'Délai de vérification estimé : 24 à 48 heures. Notre équipe examine chaque dossier avec soin.'
-                );
-
-                $notif->notify(
-                    $user,
-                    'bien_soumis',
-                    'Dossier soumis avec succès',
-                    "Votre bien \"{$bien->titre}\" a été soumis et est en attente de vérification (24-48h).",
-                    ['bien_id' => (string) $bien->id],
-                    'Confirmation de soumission — ImmoPro',
-                    $emailBody,
-                );
-            } catch (\Throwable $e) {
-                Log::warning('Erreur notification client bien soumis: ' . $e->getMessage());
-            }
-
-            // ── Notifier admins/agents ────────────────────────────────────────
-            // On passe par NotificationService (table custom + email direct synchrone)
-            // et non $user->notify() Laravel qui écrit dans la mauvaise table et
-            // dépend d'un queue worker pour les emails.
-            try {
-                $nomBien    = $bien->titre;
-                $adresse    = $bien->adresse ?? '—';
-                $typeBienLbl = ucfirst($bien->type_bien ?? '—');
-                $transaction = ucfirst($bien->type_transaction ?? '—');
-
-                $agents = User::where('role', 'agent')->get();
-                foreach ($agents as $agent) {
-                    $emailHtmlAgent = \App\Services\EmailTemplateService::generic(
-                        titre: '📂 Nouveau dossier à traiter',
-                        intro: "Un nouveau bien a été soumis et attend votre vérification. Connectez-vous pour le prendre en charge.",
-                        rows: [
-                            ['icon' => '🏠', 'label' => 'Bien',          'value' => $nomBien],
-                            ['icon' => '📍', 'label' => 'Adresse',       'value' => $adresse],
-                            ['icon' => '🏗️', 'label' => 'Type',          'value' => $typeBienLbl],
-                            ['icon' => '🔄', 'label' => 'Transaction',   'value' => $transaction],
-                        ],
-                        outro: 'Connectez-vous à la plateforme pour prendre ce dossier en charge.'
-                    );
-
-                    $notif->notify(
-                        $agent,
-                        'nouveau_dossier',
-                        '📂 Nouveau dossier à traiter',
-                        "Nouveau bien soumis : « {$nomBien} » ({$typeBienLbl}) à {$adresse}. Prenez-le en charge !",
-                        ['bien_id' => (string) $bien->id],
-                        "ImmoPro — Nouveau dossier : {$nomBien}",
-                        $emailHtmlAgent,
-                    );
-                }
-
-                $admins = User::where('role', 'admin')->get();
-                foreach ($admins as $admin) {
-                    $notif->notify(
-                        $admin,
-                        'nouveau_dossier_admin',
-                        '🏠 Nouveau bien soumis',
-                        "Un nouveau bien « {$nomBien} » a été soumis sur la plateforme.",
-                        ['bien_id' => (string) $bien->id],
-                    );
-                }
+                app(\App\Services\NotificationService::class)->notifyNouveauBienSoumis($bien);
             } catch (\Throwable $e) {
                 Log::warning('Erreur notification nouveau bien: ' . $e->getMessage());
             }

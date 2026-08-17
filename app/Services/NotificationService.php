@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\NouvelleNotificationEvent;
 use App\Models\Notification;
 use App\Models\User;
+use App\Services\EmailTemplateService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -44,6 +45,106 @@ class NotificationService
         // 3. Email
         if ($emailSubject && $emailBody && $user->email) {
             $this->sendEmail($user->email, $emailSubject, $emailBody);
+        }
+    }
+
+    /**
+     * Notifie le propriétaire, tous les agents et les administrateurs lorsqu'un bien est soumis.
+     */
+    public function notifyNouveauBienSoumis(\App\Models\Bien $bien): void
+    {
+        $nomBien     = $bien->titre ?? 'Sans titre';
+        $adresse     = $bien->adresse ?? '—';
+        $typeBienLbl = ucfirst($bien->type_bien ?? '—');
+        $transaction = ucfirst($bien->type_transaction ?? '—');
+        $deposant    = $bien->proprietaire;
+
+        // 1. Notifier le client (déposant)
+        if ($deposant) {
+            try {
+                $emailBodyClient = EmailTemplateService::generic(
+                    titre: '📋 Dossier soumis avec succès',
+                    intro: "Votre dossier immobilier a bien été reçu et est maintenant en cours de vérification par notre équipe. Vous serez notifié dès qu'une décision sera prise.",
+                    rows: [
+                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $nomBien],
+                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $adresse],
+                        ['icon' => '🔄', 'label' => 'Transaction', 'value' => $transaction],
+                        ['icon' => '⏳', 'label' => 'Statut',      'value' => 'En attente de vérification'],
+                    ],
+                    outro: 'Délai de vérification estimé : 24 à 48 heures. Notre équipe examine chaque dossier avec soin.'
+                );
+
+                $this->notify(
+                    $deposant,
+                    'bien_soumis',
+                    'Dossier soumis avec succès',
+                    "Votre bien \"{$nomBien}\" a été soumis et est en attente de vérification (24-48h).",
+                    ['bien_id' => (string) $bien->id],
+                    'Confirmation de soumission — ImmoPro',
+                    $emailBodyClient,
+                );
+            } catch (\Throwable $e) {
+                Log::warning("[NotificationService] Erreur notif client bien soumis: {$e->getMessage()}");
+            }
+        }
+
+        // 2. Notifier TOUS les agents (in-app + email)
+        try {
+            $agents = User::where('role', 'agent')->get();
+            foreach ($agents as $agent) {
+                $emailBodyAgent = EmailTemplateService::generic(
+                    titre: '📂 Nouveau dossier à traiter',
+                    intro: "Un nouveau bien a été soumis et attend votre vérification. Connectez-vous pour le prendre en charge.",
+                    rows: [
+                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $nomBien],
+                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $adresse],
+                        ['icon' => '🏗️', 'label' => 'Type',        'value' => $typeBienLbl],
+                        ['icon' => '🔄', 'label' => 'Transaction', 'value' => $transaction],
+                    ],
+                    outro: 'Connectez-vous à la plateforme pour prendre ce dossier en charge.'
+                );
+
+                $this->notify(
+                    $agent,
+                    'nouveau_dossier',
+                    '📂 Nouveau dossier à traiter',
+                    "Nouveau bien soumis : « {$nomBien} » ({$typeBienLbl}) à {$adresse}. Prenez-le en charge !",
+                    ['bien_id' => (string) $bien->id],
+                    "ImmoPro — Nouveau dossier : {$nomBien}",
+                    $emailBodyAgent,
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[NotificationService] Erreur notif agents nouveau bien: {$e->getMessage()}");
+        }
+
+        // 3. Notifier TOUS les administrateurs (in-app + email)
+        try {
+            $admins = User::where('role', 'admin')->get();
+            foreach ($admins as $admin) {
+                $emailBodyAdmin = EmailTemplateService::generic(
+                    titre: '🏠 Nouveau bien soumis sur la plateforme',
+                    intro: "Un nouveau bien a été soumis par un utilisateur et est en attente de traitement par un agent.",
+                    rows: [
+                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $nomBien],
+                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $adresse],
+                        ['icon' => '👤', 'label' => 'Déposant',    'value' => $deposant ? "{$deposant->prenom} {$deposant->nom}" : 'Inconnu'],
+                    ],
+                    outro: 'Vous pouvez suivre l\'évolution de ce dossier depuis le panneau d\'administration.'
+                );
+
+                $this->notify(
+                    $admin,
+                    'nouveau_dossier_admin',
+                    '🏠 Nouveau bien soumis',
+                    "Un nouveau bien « {$nomBien} » a été soumis sur la plateforme.",
+                    ['bien_id' => (string) $bien->id],
+                    "ImmoPro Admin — Nouveau bien soumis : {$nomBien}",
+                    $emailBodyAdmin,
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning("[NotificationService] Erreur notif admins nouveau bien: {$e->getMessage()}");
         }
     }
 

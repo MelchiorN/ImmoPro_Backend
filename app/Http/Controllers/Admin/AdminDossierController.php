@@ -70,18 +70,24 @@ class AdminDossierController extends Controller
         $bien->last_activity_at = now();
         $bien->save();
 
-        // Notifier déposant et autres admins
-        if ($bien->proprietaire) {
-            $bien->proprietaire->notify(new DossierPrisEnChargeNotification($bien, $agent));
-        }
+        // Notifier déposant et autres admins (après l'envoi de la réponse HTTP)
+        app()->terminating(function () use ($bien, $agent) {
+            try {
+                if ($bien->proprietaire) {
+                    $bien->proprietaire->notify(new DossierPrisEnChargeNotification($bien, $agent));
+                }
 
-        $admins = User::where('role', 'admin')->get();
-        foreach ($admins as $adm) {
-            $adm->notify(new DossierAssigneAdminNotification($bien, $agent));
-        }
+                $admins = User::where('role', 'admin')->get();
+                foreach ($admins as $adm) {
+                    $adm->notify(new DossierAssigneAdminNotification($bien, $agent));
+                }
 
-        // ── Broadcast temps réel ──────────────────────────────────────────────
-        broadcast(new DossierAssigneEvent($bien->fresh(), $agent))->toOthers();
+                // ── Broadcast temps réel ──────────────────────────────────────────────
+                broadcast(new DossierAssigneEvent($bien->fresh(), $agent))->toOthers();
+            } catch (\Throwable $e) {
+                Log::warning('[AdminDossierController] Erreur notification assignerAgent: ' . $e->getMessage());
+            }
+        });
 
         return response()->json([
             'success' => true,

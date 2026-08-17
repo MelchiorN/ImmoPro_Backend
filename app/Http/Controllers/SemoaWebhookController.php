@@ -406,18 +406,9 @@ class SemoaWebhookController extends Controller
                 'date_emission' => now(),
             ]);
 
-            // 5. Notifier admins/agents
+            // 5. Notifier admins, agents et client pour la soumission du bien
             try {
-                $staffs = \App\Models\User::whereIn('role', ['admin', 'agent'])->get();
-                foreach ($staffs as $staff) {
-                    app(NotificationService::class)->notify(
-                        $staff,
-                        'nouveau_bien',
-                        'Nouveau bien à vérifier',
-                        "Le dossier \"{$bien->titre}\" est en attente de vérification après paiement des frais d'étude.",
-                        ['bien_id' => (string) $bien->id]
-                    );
-                }
+                app(NotificationService::class)->notifyNouveauBienSoumis($bien);
             } catch (\Throwable $e) {
                 Log::warning('[Semoa Webhook] Notification frais_etude échouée: ' . $e->getMessage());
             }

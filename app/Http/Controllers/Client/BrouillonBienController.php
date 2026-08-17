@@ -203,6 +203,13 @@ class BrouillonBienController extends Controller
             Log::warning('[BrouillonBien] Broadcast soumettre échoué : ' . $e->getMessage());
         }
 
+        // ── Notifications In-App + Email (Client, Agents et Admins) ──
+        try {
+            app(NotificationService::class)->notifyNouveauBienSoumis($bien->fresh());
+        } catch (\Throwable $e) {
+            Log::warning('[BrouillonBien] Notification nouveau bien échouée : ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Votre bien a été soumis pour vérification.',

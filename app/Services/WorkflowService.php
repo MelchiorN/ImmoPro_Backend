@@ -69,7 +69,7 @@ class WorkflowService
         $etape1 = $this->etape1($bien);
         $etape2 = $this->etape2($bien, $sla1Minutes, $etape1);
         $etape3 = $this->etape3($bien, $derniereVisite, $rapport, $etape2);
-        $etape4 = $this->etape4($rapport, $etape3);
+        $etape4 = $this->etape4($rapport, $etape3, $bien);
         $etape5 = $this->etape5($bien, $etape4);
         $etape6 = $this->etape6($bien, $etape5);
 
@@ -172,6 +172,12 @@ class WorkflowService
             return 'non_commence';
         }
 
+        // Si le bien est publié, validé ou rejeté, l'étape de visite est considérée terminée
+        // (le workflow a avancé au-delà de cette étape)
+        if (in_array($bien->statut, ['valide', 'publie', 'rejete'])) {
+            return 'termine';
+        }
+
         // Si un rapport existe, l'agent a déjà avancé au-delà de la visite
         if ($rapport) {
             return 'termine';
@@ -191,10 +197,16 @@ class WorkflowService
         return 'en_cours';
     }
 
-    private function etape4(?Rapport $rapport, string $etape3): string
+    private function etape4(?Rapport $rapport, string $etape3, Bien $bien): string
     {
         if ($etape3 !== 'termine') {
             return 'non_commence';
+        }
+
+        // Si le bien est publié, validé ou rejeté, l'étape de rapport est considérée terminée
+        // (même si pas de rapport, le workflow a avancé)
+        if (in_array($bien->statut, ['valide', 'publie', 'rejete'])) {
+            return 'termine';
         }
 
         if (! $rapport) {
@@ -215,7 +227,7 @@ class WorkflowService
             return 'non_commence';
         }
 
-        if (in_array($bien->statut, ['valide', 'rejete'])) {
+        if (in_array($bien->statut, ['valide', 'publie', 'rejete'])) {
             return 'termine';
         }
 
@@ -302,28 +314,33 @@ class WorkflowService
                             : '')
                     : 'En attente d\'un agent',
 
-            3 => $visite
-                    ? match ($visite->statut) {
-                        'confirmee' => 'Visite confirmée le ' . Carbon::parse($visite->date_visite)
-                                          ->locale('fr')->isoFormat('D MMM YYYY [à] HH[h]mm'),
-                        'annulee'   => 'Visite annulée — nouveau créneau requis',
-                        'proposee'  => 'Créneaux proposés — en attente de confirmation',
-                        default     => 'Visite planifiée',
-                    }
-                    : 'Visite à planifier',
+            3 => in_array($bien->statut, ['valide', 'publie', 'rejete'])
+                    ? 'Étape dépassée — bien ' . $bien->statut
+                    : ($visite
+                        ? match ($visite->statut) {
+                            'confirmee' => 'Visite confirmée le ' . Carbon::parse($visite->date_visite)
+                                              ->locale('fr')->isoFormat('D MMM YYYY [à] HH[h]mm'),
+                            'annulee'   => 'Visite annulée — nouveau créneau requis',
+                            'proposee'  => 'Créneaux proposés — en attente de confirmation',
+                            default     => 'Visite planifiée',
+                          }
+                        : 'Visite à planifier'),
 
-            4 => $rapport
-                    ? match ($rapport->statut) {
-                        Rapport::STATUT_BROUILLON => 'Rapport en cours de rédaction',
-                        Rapport::STATUT_SOUMIS    => 'Rapport soumis — en attente de décision',
-                        Rapport::STATUT_VALIDE    => 'Rapport approuvé',
-                        Rapport::STATUT_REJETE    => 'Rapport rejeté — corrections requises',
-                        default                   => 'Rapport en cours',
-                    }
-                    : 'Rapport à rédiger',
+            4 => in_array($bien->statut, ['valide', 'publie', 'rejete'])
+                    ? 'Étape dépassée — bien ' . $bien->statut
+                    : ($rapport
+                        ? match ($rapport->statut) {
+                            Rapport::STATUT_BROUILLON => 'Rapport en cours de rédaction',
+                            Rapport::STATUT_SOUMIS    => 'Rapport soumis — en attente de décision',
+                            Rapport::STATUT_VALIDE    => 'Rapport approuvé',
+                            Rapport::STATUT_REJETE    => 'Rapport rejeté — corrections requises',
+                            default                   => 'Rapport en cours',
+                          }
+                        : 'Rapport à rédiger'),
 
             5 => match ($bien->statut) {
                     'valide' => "Approuvé par l'agent",
+                    'publie' => "Approuvé par l'agent (publié)",
                     'rejete' => 'Rejeté — ' . ($bien->note_admin ?? 'voir rapport'),
                     default  => 'Décision en attente',
                  },

@@ -250,37 +250,41 @@ class AgentBienController extends Controller
         // ── Enregistrer claimed_at ────────────────────────────────────────────
         $updated->update(['claimed_at' => now()]);
 
-        // ── Notifier le propriétaire du bien ──────────────────────────────────
-        try {
-            $proprietaire = $updated->proprietaire ?? User::find($updated->user_id);
-            $agent       = clone $request->user();
+        // ── Notifier et Broadcaster de manière asynchrone (après l'envoi de la réponse HTTP) ──
+        $currentUser = $request->user();
+        app()->terminating(function () use ($updated, $currentUser) {
+            // Notifier le propriétaire du bien
+            try {
+                $proprietaire = $updated->proprietaire ?? User::find($updated->user_id);
+                $agent        = clone $currentUser;
 
-            if ($proprietaire) {
-                $proprietaire->notify(new DossierPrisEnChargeNotification($updated, $agent));
+                if ($proprietaire) {
+                    $proprietaire->notify(new DossierPrisEnChargeNotification($updated, $agent));
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[AgentBienController] Erreur notification propriétaire claim: ' . $e->getMessage());
             }
-        } catch (\Throwable $e) {
-            Log::warning('[AgentBienController] Erreur notification propriétaire claim: ' . $e->getMessage());
-        }
 
-        // ── Notifier les admins ───────────────────────────────────────────────
-        try {
-            $agent    = clone $request->user();
-            $admins   = User::where('role', 'admin')->get();
+            // Notifier les admins
+            try {
+                $agent  = clone $currentUser;
+                $admins = User::where('role', 'admin')->get();
 
-            foreach ($admins as $admin) {
-                $admin->notify(new DossierAssigneAdminNotification($updated, $agent));
+                foreach ($admins as $admin) {
+                    $admin->notify(new DossierAssigneAdminNotification($updated, $agent));
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[AgentBienController] Erreur notification admin claim: ' . $e->getMessage());
             }
-        } catch (\Throwable $e) {
-            Log::warning('[AgentBienController] Erreur notification admin claim: ' . $e->getMessage());
-        }
 
-        // ── Broadcast temps réel ──────────────────────────────────────────────
-        try {
-            broadcast(new DossierAssigneEvent($updated->fresh(), $request->user()))->toOthers();
-            broadcast(new BienStatutChanged($updated->fresh()))->toOthers();
-        } catch (\Throwable $e) {
-            Log::warning('[AgentBienController] Erreur broadcast claim: ' . $e->getMessage());
-        }
+            // Broadcast temps réel
+            try {
+                broadcast(new DossierAssigneEvent($updated->fresh(), $currentUser))->toOthers();
+                broadcast(new BienStatutChanged($updated->fresh()))->toOthers();
+            } catch (\Throwable $e) {
+                Log::warning('[AgentBienController] Erreur broadcast claim: ' . $e->getMessage());
+            }
+        });
 
         return response()->json([
             'success' => true,
@@ -558,5 +562,29 @@ class AgentBienController extends Controller
         $doc->delete();
 
         return response()->json(['success' => true, 'message' => 'Document supprimé.']);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PATCH /api/agent/biens/{id}/documents/{docId}/statut
+    // Mettre à jour le statut d'un document (conforme / non_conforme)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function updateDocumentStatut(Request $request, string $id, string $docId): JsonResponse
+    {
+        $bien = Bien::where('id', $id)->where('agent_id', $request->user()->id)->firstOrFail();
+
+        $request->validate([
+            'statut' => 'required|string|max:30',
+        ]);
+
+        $doc = DocumentBien::where('id', $docId)->where('bien_id', $bien->id)->firstOrFail();
+        
+        $doc->update(['statut' => $request->statut]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Statut du document mis à jour.',
+            'data'    => $doc->fresh(),
+        ]);
     }
 }

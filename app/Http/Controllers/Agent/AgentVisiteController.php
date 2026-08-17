@@ -259,6 +259,13 @@ class AgentVisiteController extends Controller
             );
         }
 
+        // ── Broadcast temps réel ──────────────────────────────────────────────
+        try {
+            broadcast(new VisiteStatutChanged($visite->load('bien')));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[AgentVisiteController] Broadcast proposeCreneaux échoué: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'message' => "{$nb} créneau(x) proposé(s) au propriétaire.",
@@ -487,7 +494,7 @@ class AgentVisiteController extends Controller
         $agent  = $request->user();
         $statut = $request->query('statut');
 
-        $query = Visite::with(['bien.proprietaire', 'bien.medias', 'client'])
+        $query = Visite::with(['bien.proprietaire', 'bien.medias', 'bien.documents', 'client'])
             ->where('agent_id', $agent->id)
             ->where('type_visite', Visite::TYPE_CLIENT);
 
@@ -517,7 +524,7 @@ class AgentVisiteController extends Controller
     {
         $agent = $request->user();
 
-        $visite = Visite::with(['bien.proprietaire', 'bien.medias', 'client'])
+        $visite = Visite::with(['bien.proprietaire', 'bien.medias', 'bien.documents', 'client'])
             ->where('id', $visiteId)
             ->where('agent_id', $agent->id)
             ->where('type_visite', Visite::TYPE_CLIENT)
@@ -828,6 +835,14 @@ class AgentVisiteController extends Controller
                 'email'     => $proprio?->email ?? $bien?->proprietaire_email,
                 'telephone' => $telProprio,
             ],
+            'documents'             => ($bien?->documents ?? [])->map(fn ($doc) => [
+                'id'           => $doc->id,
+                'type'         => $doc->type,
+                'label'        => $doc->nom_original ?? $doc->type,
+                'nom_original' => $doc->nom_original,
+                'statut'       => $doc->statut,
+                'url'          => url("/api/agent/documents/{$doc->id}"),
+            ])->values()->toArray(),
             'created_at'            => $v->created_at->toIso8601String(),
         ];
     }

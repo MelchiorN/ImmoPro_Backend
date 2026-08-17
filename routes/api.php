@@ -339,6 +339,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/{id}/medias/{mediaId}',    [AgentBienController::class, 'updateMedia']);
         Route::delete('/{id}/medias/{mediaId}',   [AgentBienController::class, 'deleteMedia']);
         Route::post ('/{id}/documents',      [AgentBienController::class,   'addDocument']);
+        Route::patch('/{id}/documents/{docId}/statut', [AgentBienController::class, 'updateDocumentStatut']);
         Route::delete('/{id}/documents/{docId}',  [AgentBienController::class, 'deleteDocument']);
         // Visites par bien
         Route::get  ('/{id}/visites',        [AgentVisiteController::class, 'index']);

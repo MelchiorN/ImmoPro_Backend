@@ -404,6 +404,7 @@ class ProprietaireBienController extends Controller
         return [
             'id'                  => $v->id,
             'statut'              => $statut,
+            'visite_effectuee'    => (bool) ($v->visite_effectuee ?? false),
             'date_visite'         => $v->date_visite?->toIso8601String(),
             'duree_minutes'       => $v->duree_minutes,
             'notes'               => $v->notes,
