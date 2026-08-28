@@ -1,7 +1,14 @@
 FROM php:8.3-apache
 
-# Extensions PHP nécessaires à Laravel
-RUN docker-php-ext-install pdo pdo_mysql
+# Installer les dépendances système nécessaires à Laravel/Composer
+RUN apt-get update && apt-get install -y \
+    libzip-dev \
+    unzip \
+    && docker-php-ext-install \
+    pdo \
+    pdo_mysql \
+    zip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Activer mod_rewrite Apache
 RUN a2enmod rewrite
@@ -19,7 +26,8 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Permissions Laravel
-RUN mkdir -p storage/framework/cache \
+RUN mkdir -p \
+    storage/framework/cache \
     storage/framework/sessions \
     storage/framework/views \
     storage/logs \
@@ -28,11 +36,10 @@ RUN mkdir -p storage/framework/cache \
     && chmod -R 775 storage bootstrap/cache
 
 # Apache doit servir le dossier public de Laravel
-RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' /etc/apache2/sites-available/000-default.conf
+RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' \
+    /etc/apache2/sites-available/000-default.conf
 
-RUN sed -i 's|<Directory /var/www/>|<Directory /var/www/html/public>|' /etc/apache2/apache2.conf
-
-# Autoriser .htaccess
+# Autoriser l'accès au dossier public
 RUN printf '<Directory /var/www/html/public>\n\
     AllowOverride All\n\
     Require all granted\n\
