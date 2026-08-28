@@ -1,8 +1,9 @@
 FROM php:8.3-apache
 
-# Installer les dépendances système nécessaires à Laravel/Composer
+# Dépendances système nécessaires
 RUN apt-get update && apt-get install -y \
     libzip-dev \
+    libpq-dev \
     unzip \
     && docker-php-ext-install \
     pdo \
