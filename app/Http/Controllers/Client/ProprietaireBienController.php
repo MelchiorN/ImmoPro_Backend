@@ -130,14 +130,14 @@ class ProprietaireBienController extends Controller
         try {
             $user = $request->user();
             $emailBody = EmailTemplateService::generic(
-                titre: '🎉 Votre bien est maintenant publié !',
+                titre: 'Votre bien est maintenant publié',
                 intro: "Félicitations ! Votre annonce est désormais en ligne sur la plateforme ImmoPro et visible par tous les acheteurs et locataires potentiels.",
                 rows: [
-                    ['icon' => '🏠', 'label' => 'Bien',       'value' => $bien->titre],
-                    ['icon' => '📍', 'label' => 'Adresse',    'value' => $bien->adresse],
-                    ['icon' => '🔄', 'label' => 'Type',       'value' => ucfirst($bien->type_transaction)],
-                    ['icon' => '✅', 'label' => 'Statut',     'value' => 'Publié'],
-                    ['icon' => '📅', 'label' => 'Publié le',  'value' => now()->format('d/m/Y à H:i')],
+                    ['icon' => 'home',   'label' => 'Bien',      'value' => $bien->titre],
+                    ['icon' => 'pin',    'label' => 'Adresse',   'value' => $bien->adresse],
+                    ['icon' => 'type',   'label' => 'Type',      'value' => ucfirst($bien->type_transaction)],
+                    ['icon' => 'status', 'label' => 'Statut',    'value' => 'Publié'],
+                    ['icon' => 'cal',    'label' => 'Publié le', 'value' => now()->format('d/m/Y à H:i')],
                 ],
                 outro: 'Votre annonce est maintenant visible par des milliers d\'utilisateurs. Bonne chance pour votre transaction !'
             );
@@ -145,7 +145,7 @@ class ProprietaireBienController extends Controller
             app(NotificationService::class)->notify(
                 $user,
                 'bien_publie',
-                'Votre bien est en ligne ! 🎉',
+                'Votre bien est en ligne',
                 "Votre bien \"{$bien->titre}\" est maintenant publié sur la plateforme et visible par tous.",
                 ['bien_id' => (string) $bien->id],
                 'Votre annonce est publiée — ImmoPro',
@@ -196,13 +196,13 @@ class ProprietaireBienController extends Controller
         try {
             $user      = $request->user();
             $emailBody = EmailTemplateService::generic(
-                titre: '📦 Publication retirée',
+                titre: 'Publication retirée',
                 intro: "Votre demande de retrait a bien été prise en compte. Votre annonce n'est plus visible sur la plateforme, mais votre bien est conservé dans votre espace.",
                 rows: [
-                    ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
-                    ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
-                    ['icon' => '📝', 'label' => 'Motif',   'value' => $request->input('motif') ?: 'Aucun motif fourni'],
-                    ['icon' => '👁️', 'label' => 'Statut',  'value' => 'Retiré de la publication'],
+                    ['icon' => 'home',   'label' => 'Bien',    'value' => $bien->titre],
+                    ['icon' => 'pin',    'label' => 'Adresse', 'value' => $bien->adresse],
+                    ['icon' => 'note',   'label' => 'Motif',   'value' => $request->input('motif') ?: 'Aucun motif fourni'],
+                    ['icon' => 'status', 'label' => 'Statut',  'value' => 'Retiré de la publication'],
                 ],
                 outro: 'Votre bien est toujours enregistré. Vous pouvez contacter le support si vous souhaitez le republier.'
             );

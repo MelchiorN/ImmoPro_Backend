@@ -1,0 +1,1004 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "ImmoPro API",
+        "description": "Documentation interactive de l'API ImmoPro — plateforme immobilière.\n\n## Authentification\nLa majorité des endpoints nécessitent un token Bearer (Laravel Sanctum).\nConnectez-vous via **POST /api/login** (Admin/Agent) ou **POST /api/client/login** (Client),\npuis cliquez sur le bouton **Authorize** et collez votre token.\n\n## Rôles\n- **admin** : accès complet à l'administration\n- **agent** : gestion des biens assignés et des visites\n- **client** : propriétaires / acheteurs / locataires",
+        "contact": {
+            "name": "Support ImmoPro",
+            "email": "support@immopro.com"
+        },
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "http://localhost:8000/api",
+            "description": "Serveur principal de l'API ImmoPro"
+        }
+    ],
+    "paths": {
+        "/login": {
+            "post": {
+                "tags": [
+                    "Authentification Admin / Agent"
+                ],
+                "summary": "Connexion admin ou agent",
+                "description": "Authentifie un utilisateur avec le rôle admin ou agent.",
+                "operationId": "adminAgentLogin",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "admin@immopro.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "MotDePasse123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connexion réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Connexion réussie."
+                                        },
+                                        "token": {
+                                            "type": "string",
+                                            "example": "3|aB7cD9eF2gH4iJ6kL..."
+                                        },
+                                        "user": {
+                                            "$ref": "#/components/schemas/UserResource"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Compte bloqué ou suspendu"
+                    },
+                    "422": {
+                        "description": "Identifiants incorrects"
+                    }
+                }
+            }
+        },
+        "/logout": {
+            "post": {
+                "tags": [
+                    "Authentification Admin / Agent"
+                ],
+                "summary": "Déconnexion admin ou agent",
+                "operationId": "adminAgentLogout",
+                "responses": {
+                    "200": {
+                        "description": "Déconnexion réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Déconnexion réussie."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/me": {
+            "get": {
+                "tags": [
+                    "Authentification Admin / Agent"
+                ],
+                "summary": "Profil de l'utilisateur connecté (admin/agent)",
+                "operationId": "adminAgentMe",
+                "responses": {
+                    "200": {
+                        "description": "Profil récupéré",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserResource"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/profile": {
+            "put": {
+                "tags": [
+                    "Authentification Admin / Agent"
+                ],
+                "summary": "Mise à jour du profil (admin/agent)",
+                "operationId": "updateProfile",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "first_name",
+                                    "last_name",
+                                    "email"
+                                ],
+                                "properties": {
+                                    "first_name": {
+                                        "type": "string",
+                                        "example": "Ahmed",
+                                        "maxLength": 100
+                                    },
+                                    "last_name": {
+                                        "type": "string",
+                                        "example": "Diallo",
+                                        "maxLength": 100
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "ahmed.diallo@immopro.com"
+                                    },
+                                    "telephone": {
+                                        "type": "string",
+                                        "example": "+22501000000",
+                                        "nullable": true
+                                    },
+                                    "country": {
+                                        "type": "string",
+                                        "example": "Côte d'Ivoire",
+                                        "nullable": true
+                                    },
+                                    "city": {
+                                        "type": "string",
+                                        "example": "Abidjan",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Profil mis à jour avec succès",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Profil mis à jour."
+                                        },
+                                        "user": {
+                                            "$ref": "#/components/schemas/UserResource"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    },
+                    "422": {
+                        "description": "Erreur de validation"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/profile/photo": {
+            "post": {
+                "tags": [
+                    "Authentification Admin / Agent"
+                ],
+                "summary": "Changer la photo de profil (admin/agent)",
+                "operationId": "updateProfilePhoto",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "photo"
+                                ],
+                                "properties": {
+                                    "photo": {
+                                        "description": "Image JPG, PNG ou WebP (max 5 Mo)",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Photo mise à jour",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Photo de profil mise à jour."
+                                        },
+                                        "profile_picture": {
+                                            "type": "string",
+                                            "format": "url",
+                                            "example": "https://api.immopro.com/storage/profiles/1/photo.jpg"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Fichier invalide"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/client/login": {
+            "post": {
+                "tags": [
+                    "Authentification Client"
+                ],
+                "summary": "Connexion client",
+                "description": "Authentifie un utilisateur avec le rôle client. Retourne un token Sanctum.",
+                "operationId": "clientLogin",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "marie.kone@email.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "MonMotDePasse123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connexion réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Connexion réussie."
+                                        },
+                                        "token": {
+                                            "type": "string",
+                                            "example": "1|xK3mZ9pQ2rL7nY8sV1jW..."
+                                        },
+                                        "user": {
+                                            "$ref": "#/components/schemas/UserResource"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Compte suspendu/bloqué ou email non vérifié"
+                    },
+                    "422": {
+                        "description": "Email ou mot de passe incorrect"
+                    }
+                }
+            }
+        },
+        "/verify-otp": {
+            "post": {
+                "tags": [
+                    "Authentification Client"
+                ],
+                "summary": "Vérification OTP & création du compte (étape 2/2)",
+                "description": "Vérifie le code OTP reçu par email et crée le compte client.",
+                "operationId": "verifyOtp",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "otp",
+                                    "pending_token"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "marie.kone@email.com"
+                                    },
+                                    "otp": {
+                                        "type": "string",
+                                        "example": "482731",
+                                        "maxLength": 6,
+                                        "minLength": 6
+                                    },
+                                    "pending_token": {
+                                        "type": "string",
+                                        "example": "xK3mZ9pQ2rL7nY8sV1jW4tU6bO0cE5fA"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Compte créé avec succès",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Compte créé avec succès."
+                                        },
+                                        "token": {
+                                            "type": "string",
+                                            "example": "2|vR9kP5oN3mQ1eJ8dH..."
+                                        },
+                                        "user": {
+                                            "$ref": "#/components/schemas/UserResource"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Code OTP invalide/expiré"
+                    }
+                }
+            }
+        },
+        "/resend-otp": {
+            "post": {
+                "tags": [
+                    "Authentification Client"
+                ],
+                "summary": "Renvoyer un code OTP",
+                "description": "Génère et renvoie un nouveau code OTP par email.",
+                "operationId": "resendOtp",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "marie.kone@email.com"
+                                    },
+                                    "pending_token": {
+                                        "type": "string",
+                                        "example": "xK3mZ9pQ2rL7nY8sV1jW4tU6bO0cE5fA",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Nouveau OTP envoyé",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Un nouveau code OTP a été envoyé."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Aucune inscription en attente"
+                    }
+                }
+            }
+        },
+        "/client/me": {
+            "get": {
+                "tags": [
+                    "Authentification Client"
+                ],
+                "summary": "Profil du client connecté",
+                "operationId": "clientMe",
+                "responses": {
+                    "200": {
+                        "description": "Profil récupéré avec succès",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "user": {
+                                            "$ref": "#/components/schemas/UserResource"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/client/logout": {
+            "post": {
+                "tags": [
+                    "Authentification Client"
+                ],
+                "summary": "Déconnexion client",
+                "operationId": "clientLogout",
+                "responses": {
+                    "200": {
+                        "description": "Déconnexion réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Déconnexion réussie."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/register": {
+            "post": {
+                "tags": [
+                    "Authentification Client"
+                ],
+                "summary": "Inscription client (étape 1/2)",
+                "description": "Valide les données du formulaire, les stocke temporairement en cache et envoie un code OTP à l'email fourni.",
+                "operationId": "clientRegister",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "first_name",
+                                    "last_name",
+                                    "email",
+                                    "telephone",
+                                    "country",
+                                    "city",
+                                    "password",
+                                    "password_confirmation"
+                                ],
+                                "properties": {
+                                    "first_name": {
+                                        "type": "string",
+                                        "example": "Marie",
+                                        "maxLength": 100
+                                    },
+                                    "last_name": {
+                                        "type": "string",
+                                        "example": "Koné",
+                                        "maxLength": 100
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "marie.kone@email.com"
+                                    },
+                                    "telephone": {
+                                        "type": "string",
+                                        "example": "+22507654321",
+                                        "maxLength": 20
+                                    },
+                                    "country": {
+                                        "type": "string",
+                                        "example": "Côte d'Ivoire",
+                                        "maxLength": 100
+                                    },
+                                    "city": {
+                                        "type": "string",
+                                        "example": "Abidjan",
+                                        "maxLength": 100
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "MonMotDePasse123",
+                                        "minLength": 8
+                                    },
+                                    "password_confirmation": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "MonMotDePasse123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "OTP envoyé avec succès — en attente de validation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Code OTP envoyé à votre email."
+                                        },
+                                        "email": {
+                                            "type": "string",
+                                            "format": "email",
+                                            "example": "marie.kone@email.com"
+                                        },
+                                        "pending_token": {
+                                            "type": "string",
+                                            "example": "xK3mZ9pQ2rL7nY8sV1jW4tU6bO0cE5fA"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/schemas/ErrorValidation"
+                    }
+                }
+            }
+        },
+        "/biens": {
+            "get": {
+                "tags": [
+                    "Biens Immobiliers (Public)"
+                ],
+                "summary": "Lister les biens publiés",
+                "description": "Retourne la liste paginée des biens immobiliers publiés. Accessible sans authentification.",
+                "operationId": "listBiensPublics",
+                "parameters": [
+                    {
+                        "name": "type_bien",
+                        "in": "query",
+                        "description": "Type de bien",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "type_transaction",
+                        "in": "query",
+                        "description": "Type de transaction",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "vente",
+                                "location",
+                                "colocation"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "prix_min",
+                        "in": "query",
+                        "description": "Prix minimum",
+                        "required": false,
+                        "schema": {
+                            "type": "number"
+                        }
+                    },
+                    {
+                        "name": "prix_max",
+                        "in": "query",
+                        "description": "Prix maximum",
+                        "required": false,
+                        "schema": {
+                            "type": "number"
+                        }
+                    },
+                    {
+                        "name": "surface_min",
+                        "in": "query",
+                        "description": "Surface min (m²)",
+                        "required": false,
+                        "schema": {
+                            "type": "number"
+                        }
+                    },
+                    {
+                        "name": "ville",
+                        "in": "query",
+                        "description": "Ville / Adresse",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Recherche textuelle",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "sort",
+                        "in": "query",
+                        "description": "Tri",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "prix_asc",
+                                "prix_desc",
+                                "date_desc",
+                                "surface_desc"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "description": "Éléments par page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste récupérée avec succès",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "meta": {
+                                            "$ref": "#/components/schemas/PaginationMeta"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Filtres invalides"
+                    }
+                }
+            }
+        },
+        "/biens/{id}": {
+            "get": {
+                "tags": [
+                    "Biens Immobiliers (Public)"
+                ],
+                "summary": "Détail d'un bien publié",
+                "description": "Retourne le détail complet d'un bien immobilier publié.",
+                "operationId": "showBienPublic",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID du bien",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 42
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détail du bien récupéré",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Bien introuvable"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "UserResource": {
+                "title": "Utilisateur",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "first_name": {
+                        "type": "string",
+                        "example": "Jean"
+                    },
+                    "last_name": {
+                        "type": "string",
+                        "example": "Dupont"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "jean.dupont@email.com"
+                    },
+                    "telephone": {
+                        "type": "string",
+                        "example": "+22501234567",
+                        "nullable": true
+                    },
+                    "country": {
+                        "type": "string",
+                        "example": "Côte d'Ivoire",
+                        "nullable": true
+                    },
+                    "city": {
+                        "type": "string",
+                        "example": "Abidjan",
+                        "nullable": true
+                    },
+                    "profile_picture": {
+                        "type": "string",
+                        "format": "url",
+                        "example": "https://...",
+                        "nullable": true
+                    },
+                    "role": {
+                        "type": "string",
+                        "example": "client",
+                        "enum": [
+                            "admin",
+                            "agent",
+                            "client"
+                        ]
+                    },
+                    "status": {
+                        "type": "string",
+                        "example": "active",
+                        "enum": [
+                            "active",
+                            "suspended",
+                            "blocked"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
+            "PaginationMeta": {
+                "title": "Métadonnées de pagination",
+                "properties": {
+                    "total": {
+                        "type": "integer",
+                        "example": 120
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "example": 15
+                    },
+                    "current_page": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "last_page": {
+                        "type": "integer",
+                        "example": 8
+                    }
+                },
+                "type": "object"
+            },
+            "ErrorValidation": {
+                "title": "Erreur de validation",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "example": "The given data was invalid."
+                    },
+                    "errors": {
+                        "type": "object",
+                        "example": {
+                            "email": [
+                                "Le champ email est obligatoire."
+                            ]
+                        }
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "description": "Token Sanctum obtenu après connexion. Format: Bearer {token}",
+                "bearerFormat": "JWT",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Authentification Admin / Agent",
+            "description": "Authentification Admin / Agent"
+        },
+        {
+            "name": "Authentification Client",
+            "description": "Authentification Client"
+        },
+        {
+            "name": "Biens Immobiliers (Public)",
+            "description": "Biens Immobiliers (Public)"
+        }
+    ]
+}

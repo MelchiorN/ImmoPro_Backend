@@ -521,8 +521,6 @@ class BienDescriptionService
         return $ligne . ".";
     }
 
-    // ─── Utilitaires ─────────────────────────────────────────────────────────
-
     /**
      * Vérifie si un champ booléen de caracteristiques est vrai.
      * Accepte true (bool), "true" (string), 1, "1".
@@ -534,5 +532,31 @@ class BienDescriptionService
         }
         $val = $car[$cle];
         return $val === true || $val === 1 || $val === '1' || $val === 'true';
+    }
+
+    /**
+     * Génère et enregistre la description enrichie via Gemini.
+     */
+    public function enrichirEtSauvegarder(Bien $bien): ?string
+    {
+        if (!empty($bien->desc_personnalisee)) {
+            return $bien->desc_personnalisee;
+        }
+
+        try {
+            $descBrute = $this->construire($bien);
+            $geminiService = $this->gemini ?? app(GeminiService::class);
+            $descPersonnalisee = $geminiService->enrichirDescription($descBrute, $bien->toArray());
+            
+            $bien->update(['desc_personnalisee' => $descPersonnalisee]);
+            
+            return $descPersonnalisee;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[BienDescriptionService] Génération Gemini échouée', [
+                'bien_id' => $bien->id,
+                'error'   => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 }

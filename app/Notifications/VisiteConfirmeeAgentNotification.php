@@ -32,7 +32,7 @@ class VisiteConfirmeeAgentNotification extends Notification implements ShouldQue
             : '—';
 
         return (new MailMessage)
-            ->subject('✅ Visite confirmée — ' . ($this->visite->bien?->titre ?? ''))
+            ->subject('Visite confirmée — ' . ($this->visite->bien?->titre ?? ''))
             ->greeting("Bonjour {$prenom},")
             ->line('Le propriétaire a confirmé la visite de vérification pour le bien « ' . ($this->visite->bien?->titre ?? '') . ' ».')
             ->line('Date : ' . $dateStr)

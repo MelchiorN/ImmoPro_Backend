@@ -207,11 +207,11 @@ class BienAdminController extends Controller
             }
 
             $emailHtml = EmailTemplateService::generic(
-                titre:   $nouveauStatut === 'valide' ? '🎉 Annonce approuvée — publiez-la !' : "Annonce {$statutLabel}",
+                titre:   $nouveauStatut === 'valide' ? 'Annonce approuvée — publiez-la' : "Annonce {$statutLabel}",
                 intro:   $messageMsg,
                 rows:    [
-                    ['icon' => '🏠', 'label' => 'Bien',   'value' => $bien->titre],
-                    ['icon' => '📋', 'label' => 'Statut', 'value' => $nouveauStatut === 'valide' ? 'Approuvé' : ucfirst($nouveauStatut)],
+                    ['icon' => 'home',   'label' => 'Bien',   'value' => $bien->titre],
+                    ['icon' => 'status', 'label' => 'Statut', 'value' => $nouveauStatut === 'valide' ? 'Approuvé' : ucfirst($nouveauStatut)],
                 ],
                 noteBox: ($nouveauStatut === 'rejete' && $request->input('note_admin'))
                     ? $request->input('note_admin')
@@ -221,7 +221,7 @@ class BienAdminController extends Controller
             $this->notifService->notify(
                 user:         $bien->proprietaire,
                 type:         "bien_{$nouveauStatut}",
-                titre:        $nouveauStatut === 'valide' ? 'Annonce approuvée 🎉' : "Annonce {$statutLabel}",
+                titre:        $nouveauStatut === 'valide' ? 'Annonce approuvée' : "Annonce {$statutLabel}",
                 message:      $messageMsg,
                 data:         ['bien_id' => $bien->id, 'bien_titre' => $bien->titre, 'statut' => $nouveauStatut],
                 emailSubject: $nouveauStatut === 'valide'
@@ -242,7 +242,7 @@ class BienAdminController extends Controller
                 $this->notifService->notify(
                     user:    $agentUser,
                     type:    "bien_statut_change_agent",
-                    titre:   $nouveauStatut === 'valide' ? 'Bien approuvé ✅' : 'Statut du bien modifié',
+                    titre:   $nouveauStatut === 'valide' ? 'Bien approuvé' : 'Statut du bien modifié',
                     message: $msgAgent,
                     data:    ['bien_id' => $bien->id, 'bien_titre' => $bien->titre, 'statut' => $nouveauStatut],
                 );
@@ -299,11 +299,11 @@ class BienAdminController extends Controller
 
         // ── Notifier l'agent assigné ──────────────────────────────────────────
         $emailHtml = EmailTemplateService::generic(
-            titre: '📋 Nouveau bien à traiter',
+            titre: 'Nouveau bien à traiter',
             intro: "Un nouveau bien immobilier vous a été assigné par l'administration.",
             rows:  [
-                ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
-                ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse ?? '—'],
+                ['icon' => 'home', 'label' => 'Bien',    'value' => $bien->titre],
+                ['icon' => 'pin',  'label' => 'Adresse', 'value' => $bien->adresse ?? '—'],
             ],
         );
 
@@ -321,11 +321,11 @@ class BienAdminController extends Controller
         $proprietaire = $bien->proprietaire ?? User::find($bien->user_id);
         if ($proprietaire && $agentUser) {
             $emailHtml = EmailTemplateService::generic(
-                titre: '✅ Votre dossier est pris en charge',
+                titre: 'Votre dossier est pris en charge',
                 intro: "Votre bien immobilier est maintenant en cours de traitement par un agent.",
                 rows:  [
-                    ['icon' => '🏠', 'label' => 'Bien',   'value' => $bien->titre],
-                    ['icon' => '👤', 'label' => 'Agent',  'value' => $agentUser->first_name . ' ' . $agentUser->last_name],
+                    ['icon' => 'home', 'label' => 'Bien',  'value' => $bien->titre],
+                    ['icon' => 'user', 'label' => 'Agent', 'value' => $agentUser->first_name . ' ' . $agentUser->last_name],
                 ],
             );
 

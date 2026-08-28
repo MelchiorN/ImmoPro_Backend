@@ -263,17 +263,17 @@ class AgentRapportController extends Controller
                     $this->notifService->notify(
                         $bien->proprietaire,
                         'bien_valide_publie',
-                        '🎉 Votre bien est validé et publié !',
+                        'Votre bien est validé et publié',
                         "Bonne nouvelle ! Votre bien « {$bien->titre} » a été validé et est maintenant visible par tous sur la plateforme.",
                         ['bien_id' => (string) $bien->id],
                         'Votre bien est publié — ImmoPro',
                         \App\Services\EmailTemplateService::generic(
-                            titre: '🎉 Votre bien est validé et publié !',
+                            titre: 'Votre bien est validé et publié',
                             intro: "Votre bien « {$bien->titre} » a été validé par notre équipe et est maintenant disponible sur la plateforme ImmoPro.",
                             rows: [
-                                ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
-                                ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
-                                ['icon' => '✅', 'label' => 'Statut',  'value' => 'Publié et visible'],
+                                ['icon' => 'home',   'label' => 'Bien',    'value' => $bien->titre],
+                                ['icon' => 'pin',    'label' => 'Adresse', 'value' => $bien->adresse],
+                                ['icon' => 'status', 'label' => 'Statut',  'value' => 'Publié et visible'],
                             ],
                             outro: 'Des locataires ou acheteurs peuvent maintenant vous contacter via ImmoPro.'
                         ),
@@ -293,17 +293,17 @@ class AgentRapportController extends Controller
                     $this->notifService->notify(
                         $bien->proprietaire,
                         'bien_valide_attente_publication',
-                        '✅ Votre bien est validé — À vous de publier !',
+                        'Votre bien est validé — À vous de publier',
                         "Votre bien « {$bien->titre} » a été validé. Rendez-vous dans vos annonces pour le publier quand vous le souhaitez.",
                         ['bien_id' => (string) $bien->id],
                         'Votre bien est validé — ImmoPro',
                         \App\Services\EmailTemplateService::generic(
-                            titre: '✅ Votre bien est validé !',
+                            titre: 'Votre bien est validé',
                             intro: "Votre bien « {$bien->titre} » a été validé par notre équipe. Vous avez choisi de le publier vous-même.",
                             rows: [
-                                ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
-                                ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse],
-                                ['icon' => '✅', 'label' => 'Statut',  'value' => 'Validé — En attente de votre publication'],
+                                ['icon' => 'home',   'label' => 'Bien',    'value' => $bien->titre],
+                                ['icon' => 'pin',    'label' => 'Adresse', 'value' => $bien->adresse],
+                                ['icon' => 'status', 'label' => 'Statut',  'value' => 'Validé — En attente de votre publication'],
                             ],
                             outro: 'Connectez-vous à votre espace ImmoPro et cliquez sur « Publier maintenant » pour rendre votre bien visible.'
                         ),

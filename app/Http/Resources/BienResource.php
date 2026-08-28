@@ -68,12 +68,12 @@ class BienResource extends JsonResource
 
             // Identité du déposant et coordonnées du propriétaire (contact visible uniquement sur visite payée ou admin/agent)
             'role_deposant'            => $this->when($canSeeAdmin, $this->role_deposant),
-            'proprietaire_nom'         => $this->when($canSeeProprio, $this->proprietaire_nom ?? $this->proprietaire?->last_name),
-            'proprietaire_prenom'      => $this->when($canSeeProprio, $this->proprietaire_prenom ?? $this->proprietaire?->first_name),
+            'proprietaire_nom'         => $this->when($canSeeProprio, $this->role_deposant === 'proprietaire' ? ($this->proprietaire_nom ?? $this->proprietaire?->last_name) : $this->proprietaire?->last_name),
+            'proprietaire_prenom'      => $this->when($canSeeProprio, $this->role_deposant === 'proprietaire' ? ($this->proprietaire_prenom ?? $this->proprietaire?->first_name) : $this->proprietaire?->first_name),
             'proprietaire_sexe'        => $this->when($canSeeAdmin, $this->proprietaire_sexe),
             'proprietaire_nationalite' => $this->when($canSeeAdmin, $this->proprietaire_nationalite),
-            'proprietaire_telephone'   => $this->when($canSeeProprio, $this->proprietaire_telephone ?? $this->proprietaire?->telephone),
-            'proprietaire_email'       => $this->when($canSeeProprio, $this->proprietaire_email ?? $this->proprietaire?->email),
+            'proprietaire_telephone'   => $this->when($canSeeProprio, $this->role_deposant === 'proprietaire' ? ($this->proprietaire_telephone ?? $this->proprietaire?->telephone) : $this->proprietaire?->telephone),
+            'proprietaire_email'       => $this->when($canSeeProprio, $this->role_deposant === 'proprietaire' ? ($this->proprietaire_email ?? $this->proprietaire?->email) : $this->proprietaire?->email),
             'proprietaire_adresse'     => $this->when($canSeeAdmin, $this->proprietaire_adresse),
 
             // Propriétaire du compte

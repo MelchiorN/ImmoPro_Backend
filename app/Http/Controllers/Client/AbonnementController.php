@@ -340,21 +340,21 @@ class AbonnementController extends Controller
                 app(\App\Services\NotificationService::class)->notify(
                     $request->user(),
                     'abonnement_active',
-                    '🎉 Abonnement activé !',
+                    'Abonnement activé',
                     $messageFusion,
                     ['abonnement_id' => $abonnementResultat->id],
-                    '🎉 Votre abonnement ImmoPro est actif !',
+                    'Votre abonnement ImmoPro est actif',
                     EmailTemplateService::generic(
-                        'Abonnement activé avec succès !',
+                        'Abonnement activé avec succès',
                         $estFusionne
                             ? "Vos nouvelles publications ont été ajoutées à votre abonnement <strong>{$abonnementResultat->plan->nom}</strong> en cours."
                             : "Votre abonnement <strong>{$userAbonnement->plan->nom}</strong> est maintenant actif.",
                         [
-                            ['icon' => '📦', 'label' => 'Plan',                     'value' => $userAbonnement->plan->nom],
-                            ['icon' => '📋', 'label' => 'Publications disponibles', 'value' => $abonnementResultat->nb_publications_restantes . ' publication(s)'],
-                            ['icon' => '🧾', 'label' => 'Reçu',                    'value' => $recu->numero_recu],
-                            ['icon' => '💳', 'label' => 'Opérateur',               'value' => $operateurLabel],
-                            ['icon' => '💰', 'label' => 'Montant payé',            'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                            ['icon' => 'doc',    'label' => 'Plan',                    'value' => $userAbonnement->plan->nom],
+                            ['icon' => 'status', 'label' => 'Publications disponibles','value' => $abonnementResultat->nb_publications_restantes . ' publication(s)'],
+                            ['icon' => 'doc',    'label' => 'Reçu',                   'value' => $recu->numero_recu],
+                            ['icon' => 'card',   'label' => 'Opérateur',              'value' => $operateurLabel],
+                            ['icon' => 'money',  'label' => 'Montant payé',           'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
                         ],
                         null,
                         'Merci de votre confiance ! Rendez-vous sur l\'application pour publier vos annonces.'

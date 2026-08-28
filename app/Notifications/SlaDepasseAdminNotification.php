@@ -37,7 +37,7 @@ class SlaDepasseAdminNotification extends Notification implements ShouldQueue
         $prenom = $notifiable->first_name ?? $notifiable->name ?? '';
 
         return (new MailMessage)
-            ->subject('⚠️ Alerte SLA Dépassé — ' . $this->bien->titre)
+            ->subject('Alerte SLA Dépassé — ' . $this->bien->titre)
             ->greeting("Bonjour {$prenom},")
             ->line($this->messageText)
             ->action('Voir le dossier', url('/admin/dossiers/' . $this->bien->id));

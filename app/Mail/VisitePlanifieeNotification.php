@@ -18,7 +18,7 @@ class VisitePlanifieeNotification extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '📅 Visite planifiée pour votre bien — ImmoPro',
+            subject: 'Visite planifiée pour votre bien — ImmoPro',
         );
     }
 

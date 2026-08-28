@@ -83,6 +83,25 @@ class Bien extends Model
         ];
     }
 
+    protected static function booted()
+    {
+        static::created(function ($bien) {
+            if ($bien->statut === 'en_attente') {
+                \Illuminate\Support\Facades\DB::afterCommit(function () use ($bien) {
+                    app(\App\Services\BienDescriptionService::class)->enrichirEtSauvegarder($bien);
+                });
+            }
+        });
+
+        static::updated(function ($bien) {
+            if ($bien->wasChanged('statut') && $bien->statut === 'en_attente') {
+                \Illuminate\Support\Facades\DB::afterCommit(function () use ($bien) {
+                    app(\App\Services\BienDescriptionService::class)->enrichirEtSauvegarder($bien);
+                });
+            }
+        });
+    }
+
     // Rôles de déposant valides — DÉPRÉCIÉ : utiliser ConfigRoleDeposant::slugsValides()
     // Conservé pour rétrocompatibilité uniquement
     public const ROLES_DEPOSANT = ['proprietaire', 'agence', 'mandataire', 'heritier', 'autre'];

@@ -30,7 +30,7 @@ class CreneauxProposesNotification extends Notification implements ShouldQueue
         $titreBien  = $this->visite->bien?->titre ?? '';
 
         $mail = (new MailMessage)
-            ->subject('📅 Choisissez un créneau de visite — ' . $titreBien)
+            ->subject('Choisissez un créneau de visite — ' . $titreBien)
             ->greeting("Bonjour {$prenom},")
             ->line("Notre agent souhaite planifier une visite de vérification pour votre bien « {$titreBien} ».")
             ->line('Voici les créneaux proposés :');

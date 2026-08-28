@@ -70,16 +70,16 @@ class EnvoyerRappelsVisitesCommand extends Command
                 $label     = $rappel->label();
 
                 $sujet  = $rappel->est_jour_j
-                    ? "📍 Visite aujourd'hui — {$titreBien}"
-                    : "⏰ Rappel visite ({$label}) — {$titreBien}";
+                    ? "Visite aujourd'hui — {$titreBien}"
+                    : "Rappel visite ({$label}) — {$titreBien}";
 
                 $intro = $rappel->est_jour_j
                     ? "Votre visite pour « {$titreBien} » a lieu aujourd'hui à " . Carbon::parse($visite->date_visite)->format('H\hi') . "."
                     : "Rappel : votre visite pour « {$titreBien} » est prévue le {$dateLabel}.";
 
                 $rows = [
-                    ['icon' => '🏠', 'label' => 'Bien',         'value' => $titreBien],
-                    ['icon' => '📅', 'label' => 'Date et heure','value' => $dateLabel],
+                    ['icon' => 'home', 'label' => 'Bien',          'value' => $titreBien],
+                    ['icon' => 'cal',  'label' => 'Date et heure', 'value' => $dateLabel],
                 ];
 
                 $html = EmailTemplateService::generic(

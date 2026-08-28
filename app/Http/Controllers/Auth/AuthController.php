@@ -11,15 +11,42 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
+use OpenApi\Attributes as OA;
 
 class AuthController extends Controller
 {
-    /**
-     * POST /api/login
-     *
-     * Point d'entrée unique pour admin et agent.
-     * Le frontend redirige ensuite selon le champ `role` retourné.
-     */
+    #[OA\Post(
+        path: "/login",
+        tags: ["Authentification Admin / Agent"],
+        summary: "Connexion admin ou agent",
+        description: "Authentifie un utilisateur avec le rôle admin ou agent.",
+        operationId: "adminAgentLogin",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email", "password"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email", example: "admin@immopro.com"),
+                    new OA\Property(property: "password", type: "string", format: "password", example: "MotDePasse123")
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Connexion réussie",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "message", type: "string", example: "Connexion réussie."),
+                        new OA\Property(property: "token", type: "string", example: "3|aB7cD9eF2gH4iJ6kL..."),
+                        new OA\Property(property: "user", ref: "#/components/schemas/UserResource")
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: "Compte bloqué ou suspendu"),
+            new OA\Response(response: 422, description: "Identifiants incorrects")
+        ]
+    )]
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -96,9 +123,25 @@ class AuthController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /api/logout
-     */
+    #[OA\Post(
+        path: "/logout",
+        tags: ["Authentification Admin / Agent"],
+        summary: "Déconnexion admin ou agent",
+        operationId: "adminAgentLogout",
+        security: [["bearerAuth" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Déconnexion réussie",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "message", type: "string", example: "Déconnexion réussie.")
+                    ]
+                )
+            ),
+            new OA\Response(response: 401, description: "Non authentifié")
+        ]
+    )]
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -114,18 +157,62 @@ class AuthController extends Controller
         return response()->json(['message' => 'Déconnexion réussie.'], 200);
     }
 
-    /**
-     * GET /api/me
-     */
+    #[OA\Get(
+        path: "/me",
+        tags: ["Authentification Admin / Agent"],
+        summary: "Profil de l'utilisateur connecté (admin/agent)",
+        operationId: "adminAgentMe",
+        security: [["bearerAuth" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Profil récupéré",
+                content: new OA\JsonContent(ref: "#/components/schemas/UserResource")
+            ),
+            new OA\Response(response: 401, description: "Non authentifié")
+        ]
+    )]
     public function me(Request $request): JsonResponse
     {
         return response()->json($request->user(), 200);
     }
 
-    /**
-     * PUT /api/profile
-     * Met à jour le profil de l'utilisateur connecté (admin/agent).
-     */
+    #[OA\Put(
+        path: "/profile",
+        tags: ["Authentification Admin / Agent"],
+        summary: "Mise à jour du profil (admin/agent)",
+        operationId: "updateProfile",
+        security: [["bearerAuth" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["first_name", "last_name", "email"],
+                properties: [
+                    new OA\Property(property: "first_name", type: "string", maxLength: 100, example: "Ahmed"),
+                    new OA\Property(property: "last_name", type: "string", maxLength: 100, example: "Diallo"),
+                    new OA\Property(property: "email", type: "string", format: "email", example: "ahmed.diallo@immopro.com"),
+                    new OA\Property(property: "telephone", type: "string", nullable: true, example: "+22501000000"),
+                    new OA\Property(property: "country", type: "string", nullable: true, example: "Côte d'Ivoire"),
+                    new OA\Property(property: "city", type: "string", nullable: true, example: "Abidjan")
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Profil mis à jour avec succès",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Profil mis à jour."),
+                        new OA\Property(property: "user", ref: "#/components/schemas/UserResource")
+                    ]
+                )
+            ),
+            new OA\Response(response: 401, description: "Non authentifié"),
+            new OA\Response(response: 422, description: "Erreur de validation")
+        ]
+    )]
     public function updateProfile(Request $request): JsonResponse
     {
         /** @var User $user */
@@ -153,10 +240,39 @@ class AuthController extends Controller
         ], 200);
     }
 
-    /**
-     * POST /api/profile/photo
-     * Upload de la photo de profil pour admin/agent.
-     */
+    #[OA\Post(
+        path: "/profile/photo",
+        tags: ["Authentification Admin / Agent"],
+        summary: "Changer la photo de profil (admin/agent)",
+        operationId: "updateProfilePhoto",
+        security: [["bearerAuth" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\MediaType(
+                mediaType: "multipart/form-data",
+                schema: new OA\Schema(
+                    required: ["photo"],
+                    properties: [
+                        new OA\Property(property: "photo", type: "string", format: "binary", description: "Image JPG, PNG ou WebP (max 5 Mo)")
+                    ]
+                )
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Photo mise à jour",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Photo de profil mise à jour."),
+                        new OA\Property(property: "profile_picture", type: "string", format: "url", example: "https://api.immopro.com/storage/profiles/1/photo.jpg")
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: "Fichier invalide")
+        ]
+    )]
     public function updateProfilePhoto(Request $request): JsonResponse
     {
         /** @var User $user */

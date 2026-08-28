@@ -34,7 +34,7 @@ class DossierPrisEnChargeNotification extends Notification implements ShouldQueu
                     ?: ($this->agent->name ?? 'un agent');
 
         return (new MailMessage)
-            ->subject('✅ Votre dossier est pris en charge — ' . $this->bien->titre)
+            ->subject('Votre dossier est pris en charge — ' . $this->bien->titre)
             ->greeting("Bonjour {$prenom},")
             ->line('Votre bien « ' . $this->bien->titre . ' » est maintenant pris en charge par ' . $nomAgent . '.')
             ->action('Voir mon bien', url('/biens/' . $this->bien->id))

@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use OpenApi\Attributes as OA;
 
 class RegisterController extends Controller
 {
@@ -28,6 +29,44 @@ class RegisterController extends Controller
     // POST /api/register
     // Étape 1 : validation + stockage temporaire + envoi OTP
     // ─────────────────────────────────────────────────────────────────────────
+    #[OA\Post(
+        path: "/register",
+        tags: ["Authentification Client"],
+        summary: "Inscription client (étape 1/2)",
+        description: "Valide les données du formulaire, les stocke temporairement en cache et envoie un code OTP à l'email fourni.",
+        operationId: "clientRegister",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["first_name", "last_name", "email", "telephone", "country", "city", "password", "password_confirmation"],
+                properties: [
+                    new OA\Property(property: "first_name", type: "string", maxLength: 100, example: "Marie"),
+                    new OA\Property(property: "last_name", type: "string", maxLength: 100, example: "Koné"),
+                    new OA\Property(property: "email", type: "string", format: "email", example: "marie.kone@email.com"),
+                    new OA\Property(property: "telephone", type: "string", maxLength: 20, example: "+22507654321"),
+                    new OA\Property(property: "country", type: "string", maxLength: 100, example: "Côte d'Ivoire"),
+                    new OA\Property(property: "city", type: "string", maxLength: 100, example: "Abidjan"),
+                    new OA\Property(property: "password", type: "string", format: "password", minLength: 8, example: "MonMotDePasse123"),
+                    new OA\Property(property: "password_confirmation", type: "string", format: "password", example: "MonMotDePasse123")
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 201,
+                description: "OTP envoyé avec succès — en attente de validation",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Code OTP envoyé à votre email."),
+                        new OA\Property(property: "email", type: "string", format: "email", example: "marie.kone@email.com"),
+                        new OA\Property(property: "pending_token", type: "string", example: "xK3mZ9pQ2rL7nY8sV1jW4tU6bO0cE5fA")
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: "Erreur de validation", ref: "#/components/schemas/ErrorValidation")
+        ]
+    )]
     public function register(Request $request): JsonResponse
     {
         // ── Validation ────────────────────────────────────────────────────────

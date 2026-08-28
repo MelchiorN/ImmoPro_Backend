@@ -129,20 +129,20 @@ class ClientVisiteController extends Controller
         // Notifier l'agent
         if ($bien?->agent) {
             $html = \App\Services\EmailTemplateService::generic(
-                titre: '✅ Créneau de vérification confirmé !',
+                titre: 'Créneau de vérification confirmé',
                 intro: "Le propriétaire a choisi le créneau du {$dateLabel} pour la visite de vérification de « {$bien->titre} ».",
                 rows: [
-                    ['icon' => '🏠', 'label' => 'Bien',    'value' => $bien->titre],
-                    ['icon' => '📍', 'label' => 'Adresse', 'value' => $bien->adresse ?? '—'],
-                    ['icon' => '📅', 'label' => 'Date',    'value' => $dateLabel],
-                    ['icon' => '⏱️', 'label' => 'Durée',   'value' => "{$duree} min"],
+                    ['icon' => 'home',  'label' => 'Bien',    'value' => $bien->titre],
+                    ['icon' => 'pin',   'label' => 'Adresse', 'value' => $bien->adresse ?? '—'],
+                    ['icon' => 'cal',   'label' => 'Date',    'value' => $dateLabel],
+                    ['icon' => 'clock', 'label' => 'Durée',   'value' => "{$duree} min"],
                 ],
                 outro: 'Préparez-vous pour la visite de vérification.'
             );
             $this->notifService->notify(
                 $bien->agent,
                 'creneau_verification_confirme',
-                '✅ Créneau de vérification confirmé',
+                'Créneau de vérification confirmé',
                 "Le propriétaire a confirmé le créneau du {$dateLabel} pour « {$bien->titre} ».",
                 ['visite_id' => $visite->id, 'bien_id' => $bien->id, 'date_visite' => $dateVisite->toIso8601String()],
                 "ImmoPro — Vérification confirmée : {$bien->titre}",
@@ -229,11 +229,11 @@ class ClientVisiteController extends Controller
         // Notifier l'agent
         if ($bien->agent) {
             $html = EmailTemplateService::generic(
-                titre: '✅ Créneau confirmé par le propriétaire',
+                titre: 'Créneau confirmé par le propriétaire',
                 intro: "Le propriétaire a choisi le créneau du {$dateLabel} pour la visite de « {$bien->titre} ».",
                 rows:  [
-                    ['icon' => '🏠', 'label' => 'Bien',  'value' => $bien->titre],
-                    ['icon' => '📅', 'label' => 'Date',  'value' => $dateLabel],
+                    ['icon' => 'home', 'label' => 'Bien', 'value' => $bien->titre],
+                    ['icon' => 'cal',  'label' => 'Date', 'value' => $dateLabel],
                 ],
             );
             $this->notifService->notify($bien->agent, 'visite_confirmee_proprio',
@@ -284,14 +284,14 @@ class ClientVisiteController extends Controller
 
         // Notifier l'agent
         if ($bien?->agent) {
-            $msg  = "❌ Le propriétaire a annulé la visite du {$dateLabel} pour « {$bien->titre} »."
+            $msg  = "Le propriétaire a annulé la visite du {$dateLabel} pour « {$bien->titre} »."
                 . ($request->note ? " Note : {$request->note}" : '');
             $html = EmailTemplateService::generic(
-                titre:   '❌ Visite annulée',
+                titre:   'Visite annulée',
                 intro:   $msg,
                 rows:    [
-                    ['icon' => '🏠', 'label' => 'Bien', 'value' => $bien->titre],
-                    ['icon' => '📅', 'label' => 'Date annulée', 'value' => $dateLabel],
+                    ['icon' => 'home', 'label' => 'Bien',           'value' => $bien->titre],
+                    ['icon' => 'cal',  'label' => 'Date annulée',   'value' => $dateLabel],
                 ],
                 noteBox: $request->note ?: null,
                 outro:   'Vous pouvez proposer de nouveaux créneaux au propriétaire.'
@@ -574,18 +574,18 @@ class ClientVisiteController extends Controller
                 $this->notifService->notify(
                     $client,
                     'visite_payee',
-                    '✅ Paiement de visite confirmé !',
+                    'Paiement de demande de visite confirmé',
                     "Votre paiement pour visiter « {$bien->titre} » a été confirmé. Vous pouvez maintenant voir la localisation exacte.",
                     ['visite_id' => $visite->id, 'bien_id' => $bienId],
-                    '✅ Visite confirmée — ImmoPro',
+                    'Demande de visite confirmée — ImmoPro',
                     \App\Services\EmailTemplateService::generic(
-                        'Frais de visite confirmés !',
+                        'Demande de visite confirmée',
                         "Votre paiement pour visiter <strong>{$bien->titre}</strong> a été reçu et confirmé. La localisation exacte est maintenant déverrouillée.",
                         [
-                            ['icon' => '🏠', 'label' => 'Bien',           'value' => $bien->titre],
-                            ['icon' => '💰', 'label' => 'Montant payé',   'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
-                            ['icon' => '💳', 'label' => 'Opérateur',      'value' => $operateurLabel],
-                            ['icon' => '🧾', 'label' => 'Reçu',           'value' => $recu->numero_recu],
+                            ['icon' => 'home',  'label' => 'Bien',         'value' => $bien->titre],
+                            ['icon' => 'money', 'label' => 'Montant payé', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                            ['icon' => 'card',  'label' => 'Opérateur',    'value' => $operateurLabel],
+                            ['icon' => 'doc',   'label' => 'Reçu',         'value' => $recu->numero_recu],
                         ],
                         null,
                         'Connectez-vous à l\'application pour voir la localisation et planifier votre visite.'
@@ -616,21 +616,21 @@ class ClientVisiteController extends Controller
                         $montantFormate = number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA';
 
                         $emailHtml = \App\Services\EmailTemplateService::generic(
-                            titre: '🔔 Nouvelle demande de visite client',
+                            titre: 'Nouvelle demande de visite client',
                             intro: "Un client vient de payer les frais de visite pour le bien « {$bien->titre} ». "
                                  . "Connectez-vous à votre espace agent pour proposer des créneaux.",
                             rows: [
                                 // ── Client demandeur ──────────────────────────
-                                ['icon' => '👤', 'label' => 'Client',           'value' => $nomClient],
-                                ['icon' => '📧', 'label' => 'Email client',     'value' => $emailClient],
-                                ['icon' => '📞', 'label' => 'Tél. client',      'value' => $telClient],
+                                ['icon' => 'user',  'label' => 'Client',            'value' => $nomClient],
+                                ['icon' => 'mail',  'label' => 'Email client',      'value' => $emailClient],
+                                ['icon' => 'phone', 'label' => 'Tél. client',       'value' => $telClient],
                                 // ── Bien concerné ─────────────────────────────
-                                ['icon' => '🏠', 'label' => 'Bien',             'value' => $bien->titre],
-                                ['icon' => '📍', 'label' => 'Adresse',          'value' => $bien->adresse ?? '—'],
-                                ['icon' => '💰', 'label' => 'Montant payé',     'value' => $montantFormate],
+                                ['icon' => 'home',  'label' => 'Bien',              'value' => $bien->titre],
+                                ['icon' => 'pin',   'label' => 'Adresse',           'value' => $bien->adresse ?? '—'],
+                                ['icon' => 'money', 'label' => 'Montant payé',      'value' => $montantFormate],
                                 // ── Propriétaire du bien ──────────────────────
-                                ['icon' => '🧑‍💼', 'label' => 'Propriétaire',    'value' => $nomProprio],
-                                ['icon' => '📱', 'label' => 'Tél. propriétaire','value' => $telProprio],
+                                ['icon' => 'user',  'label' => 'Propriétaire',      'value' => $nomProprio],
+                                ['icon' => 'phone', 'label' => 'Tél. propriétaire', 'value' => $telProprio],
                             ],
                             outro: 'Rendez-vous sur votre tableau de bord ImmoPro → Visites pour proposer des créneaux au client.'
                         );
@@ -742,13 +742,13 @@ class ClientVisiteController extends Controller
         // Notifier l'agent
         if ($bien?->agent) {
             $html = EmailTemplateService::generic(
-                titre: '✅ Créneau choisi par le client !',
+                titre: 'Créneau choisi par le client',
                 intro: "Le client {$nomClient} a choisi le créneau du {$dateLabel} pour visiter « {$bien->titre} ».",
                 rows: [
-                    ['icon' => '🏠', 'label' => 'Bien',   'value' => $bien->titre],
-                    ['icon' => '📅', 'label' => 'Date',   'value' => $dateLabel],
-                    ['icon' => '⏱️', 'label' => 'Durée',  'value' => $duree . ' min'],
-                    ['icon' => '👤', 'label' => 'Client', 'value' => $nomClient],
+                    ['icon' => 'home',  'label' => 'Bien',   'value' => $bien->titre],
+                    ['icon' => 'cal',   'label' => 'Date',   'value' => $dateLabel],
+                    ['icon' => 'clock', 'label' => 'Durée',  'value' => $duree . ' min'],
+                    ['icon' => 'user',  'label' => 'Client', 'value' => $nomClient],
                 ],
                 outro: 'Préparez la visite et présentez-vous à l\'adresse du bien.'
             );
@@ -817,13 +817,13 @@ class ClientVisiteController extends Controller
             $noteClient = $request->input('note') ?: 'Aucune note fournie.';
 
             $html = \App\Services\EmailTemplateService::generic(
-                titre: '⚠️ Client indisponible — nouvelle proposition requise',
+                titre: 'Client indisponible — nouvelle proposition requise',
                 intro: "Le client {$nomClient} ne peut pas se rendre aux créneaux proposés pour « {$bien->titre} ». Veuillez proposer de nouveaux créneaux.",
                 rows: [
-                    ['icon' => '🏠', 'label' => 'Bien',           'value' => $bien->titre],
-                    ['icon' => '👤', 'label' => 'Client',         'value' => $nomClient],
-                    ['icon' => '🔄', 'label' => 'Tentatives',     'value' => "{$nb} fois"],
-                    ['icon' => '📝', 'label' => 'Note du client', 'value' => $noteClient],
+                    ['icon' => 'home',   'label' => 'Bien',           'value' => $bien->titre],
+                    ['icon' => 'user',   'label' => 'Client',         'value' => $nomClient],
+                    ['icon' => 'repeat', 'label' => 'Tentatives',     'value' => "{$nb} fois"],
+                    ['icon' => 'note',   'label' => 'Note du client', 'value' => $noteClient],
                 ],
                 outro: 'Connectez-vous à votre espace agent pour proposer de nouveaux créneaux.'
             );
@@ -902,13 +902,13 @@ class ClientVisiteController extends Controller
             $noteClient = $request->input('note') ?: 'Aucune note fournie.';
 
             $html = \App\Services\EmailTemplateService::generic(
-                titre: '⚠️ Propriétaire indisponible — re-planification requise',
+                titre: 'Propriétaire indisponible — re-planification requise',
                 intro: "Le propriétaire {$nomProprio} ne peut pas se rendre aux créneaux proposés pour la vérification de « {$bien->titre} ». Veuillez proposer de nouveaux créneaux.",
                 rows: [
-                    ['icon' => '🏠', 'label' => 'Bien',            'value' => $bien->titre],
-                    ['icon' => '👤', 'label' => 'Propriétaire',    'value' => $nomProprio],
-                    ['icon' => '🔄', 'label' => 'Tentatives',      'value' => "{$nb} fois"],
-                    ['icon' => '📝', 'label' => 'Note',            'value' => $noteClient],
+                    ['icon' => 'home',   'label' => 'Bien',          'value' => $bien->titre],
+                    ['icon' => 'user',   'label' => 'Propriétaire',  'value' => $nomProprio],
+                    ['icon' => 'repeat', 'label' => 'Tentatives',    'value' => "{$nb} fois"],
+                    ['icon' => 'note',   'label' => 'Note',          'value' => $noteClient],
                 ],
                 outro: 'Connectez-vous à votre espace agent pour proposer de nouveaux créneaux de vérification.'
             );
@@ -916,7 +916,7 @@ class ClientVisiteController extends Controller
             $this->notifService->notify(
                 $bien->agent,
                 'proprio_indisponible_verification',
-                '⚠️ Propriétaire indisponible — re-planifier la vérification',
+                'Propriétaire indisponible — re-planifier la vérification',
                 "{$nomProprio} est indisponible pour les créneaux proposés pour « {$bien->titre} ».",
                 [
                     'visite_id'  => $visite->id,

@@ -52,24 +52,24 @@ class CheckSlaCommand extends Command
                 }
 
                 $duree = $this->formatDuree($ref);
-                $msg   = "⚠️ SLA 1 dépassé : le dossier « {$bien->titre} » est en attente depuis {$duree} sans agent assigné.";
+                $msg   = "SLA 1 dépassé : le dossier « {$bien->titre} » est en attente depuis {$duree} sans agent assigné.";
 
                 $this->line("[SLA1] {$bien->titre} — {$duree}");
 
                 if (! $dryRun) {
                     foreach ($admins as $admin) {
                         $html = EmailTemplateService::generic(
-                            titre:   '⚠️ Alerte SLA — Dossier sans agent',
+                            titre:   'Alerte SLA — Dossier sans agent',
                             intro:   $msg,
                             rows:    [
-                                ['icon' => '🏠', 'label' => 'Bien',       'value' => $bien->titre],
-                                ['icon' => '📍', 'label' => 'Adresse',    'value' => $bien->adresse ?? '—'],
-                                ['icon' => '⏱️', 'label' => 'En attente', 'value' => $duree],
+                                ['icon' => 'home',   'label' => 'Bien',       'value' => $bien->titre],
+                                ['icon' => 'pin',    'label' => 'Adresse',    'value' => $bien->adresse ?? '—'],
+                                ['icon' => 'clock',  'label' => 'En attente', 'value' => $duree],
                             ],
                             outro: 'Assignez un agent manuellement depuis le tableau de bord.'
                         );
                         $notif->notify($admin, 'sla1_alerte', 'Alerte SLA — Dossier sans agent', $msg,
-                            ['bien_id' => $bien->id], "ImmoPro — ⚠️ SLA dépassé : {$bien->titre}", $html);
+                            ['bien_id' => $bien->id], "ImmoPro — SLA dépassé : {$bien->titre}", $html);
                     }
                     $bien->update(['sla1_alerted_at' => now()]);
                 }
@@ -92,25 +92,25 @@ class CheckSlaCommand extends Command
                     ? trim("{$bien->agent->first_name} {$bien->agent->last_name}")
                     : 'Inconnu';
 
-                $msg = "⚠️ SLA 2 dépassé : le dossier « {$bien->titre} » est en cours depuis {$duree} sans clôture (agent : {$nomAgent}).";
+                $msg = "SLA 2 dépassé : le dossier « {$bien->titre} » est en cours depuis {$duree} sans clôture (agent : {$nomAgent}).";
 
                 $this->line("[SLA2] {$bien->titre} — {$duree} — agent : {$nomAgent}");
 
                 if (! $dryRun) {
                     foreach ($admins as $admin) {
                         $html = EmailTemplateService::generic(
-                            titre:   '⚠️ Alerte SLA — Dossier sans progression',
+                            titre:   'Alerte SLA — Dossier sans progression',
                             intro:   $msg,
                             rows:    [
-                                ['icon' => '🏠', 'label' => 'Bien',      'value' => $bien->titre],
-                                ['icon' => '👤', 'label' => 'Agent',     'value' => $nomAgent],
-                                ['icon' => '⏱️', 'label' => 'En cours',  'value' => $duree],
+                                ['icon' => 'home',  'label' => 'Bien',     'value' => $bien->titre],
+                                ['icon' => 'user',  'label' => 'Agent',    'value' => $nomAgent],
+                                ['icon' => 'clock', 'label' => 'En cours', 'value' => $duree],
                             ],
                             outro: 'Vérifiez l\'avancement du dossier avec l\'agent concerné.'
                         );
                         $notif->notify($admin, 'sla2_alerte', 'Alerte SLA — Dossier sans progression', $msg,
                             ['bien_id' => $bien->id, 'agent' => $nomAgent],
-                            "ImmoPro — ⚠️ SLA 2 dépassé : {$bien->titre}", $html);
+                            "ImmoPro — SLA 2 dépassé : {$bien->titre}", $html);
                     }
                     $bien->update(['sla2_alerted_at' => now()]);
                 }

@@ -63,13 +63,13 @@ class NotificationService
         if ($deposant) {
             try {
                 $emailBodyClient = EmailTemplateService::generic(
-                    titre: '📋 Dossier soumis avec succès',
+                    titre: 'Dossier soumis avec succès',
                     intro: "Votre dossier immobilier a bien été reçu et est maintenant en cours de vérification par notre équipe. Vous serez notifié dès qu'une décision sera prise.",
                     rows: [
-                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $nomBien],
-                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $adresse],
-                        ['icon' => '🔄', 'label' => 'Transaction', 'value' => $transaction],
-                        ['icon' => '⏳', 'label' => 'Statut',      'value' => 'En attente de vérification'],
+                        ['icon' => 'home',   'label' => 'Bien',        'value' => $nomBien],
+                        ['icon' => 'pin',    'label' => 'Adresse',     'value' => $adresse],
+                        ['icon' => 'type',   'label' => 'Transaction', 'value' => $transaction],
+                        ['icon' => 'status', 'label' => 'Statut',      'value' => 'En attente de vérification'],
                     ],
                     outro: 'Délai de vérification estimé : 24 à 48 heures. Notre équipe examine chaque dossier avec soin.'
                 );
@@ -93,13 +93,13 @@ class NotificationService
             $agents = User::where('role', 'agent')->get();
             foreach ($agents as $agent) {
                 $emailBodyAgent = EmailTemplateService::generic(
-                    titre: '📂 Nouveau dossier à traiter',
+                    titre: 'Nouveau dossier à traiter',
                     intro: "Un nouveau bien a été soumis et attend votre vérification. Connectez-vous pour le prendre en charge.",
                     rows: [
-                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $nomBien],
-                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $adresse],
-                        ['icon' => '🏗️', 'label' => 'Type',        'value' => $typeBienLbl],
-                        ['icon' => '🔄', 'label' => 'Transaction', 'value' => $transaction],
+                        ['icon' => 'home',     'label' => 'Bien',        'value' => $nomBien],
+                        ['icon' => 'pin',      'label' => 'Adresse',     'value' => $adresse],
+                        ['icon' => 'building', 'label' => 'Type',        'value' => $typeBienLbl],
+                        ['icon' => 'type',     'label' => 'Transaction', 'value' => $transaction],
                     ],
                     outro: 'Connectez-vous à la plateforme pour prendre ce dossier en charge.'
                 );
@@ -107,7 +107,7 @@ class NotificationService
                 $this->notify(
                     $agent,
                     'nouveau_dossier',
-                    '📂 Nouveau dossier à traiter',
+                    'Nouveau dossier à traiter',
                     "Nouveau bien soumis : « {$nomBien} » ({$typeBienLbl}) à {$adresse}. Prenez-le en charge !",
                     ['bien_id' => (string) $bien->id],
                     "ImmoPro — Nouveau dossier : {$nomBien}",
@@ -123,12 +123,12 @@ class NotificationService
             $admins = User::where('role', 'admin')->get();
             foreach ($admins as $admin) {
                 $emailBodyAdmin = EmailTemplateService::generic(
-                    titre: '🏠 Nouveau bien soumis sur la plateforme',
+                    titre: 'Nouveau bien soumis sur la plateforme',
                     intro: "Un nouveau bien a été soumis par un utilisateur et est en attente de traitement par un agent.",
                     rows: [
-                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $nomBien],
-                        ['icon' => '📍', 'label' => 'Adresse',     'value' => $adresse],
-                        ['icon' => '👤', 'label' => 'Déposant',    'value' => $deposant ? "{$deposant->prenom} {$deposant->nom}" : 'Inconnu'],
+                        ['icon' => 'home', 'label' => 'Bien',     'value' => $nomBien],
+                        ['icon' => 'pin',  'label' => 'Adresse',  'value' => $adresse],
+                        ['icon' => 'user', 'label' => 'Déposant', 'value' => $deposant ? "{$deposant->prenom} {$deposant->nom}" : 'Inconnu'],
                     ],
                     outro: 'Vous pouvez suivre l\'évolution de ce dossier depuis le panneau d\'administration.'
                 );
@@ -136,7 +136,7 @@ class NotificationService
                 $this->notify(
                     $admin,
                     'nouveau_dossier_admin',
-                    '🏠 Nouveau bien soumis',
+                    'Nouveau bien soumis',
                     "Un nouveau bien « {$nomBien} » a été soumis sur la plateforme.",
                     ['bien_id' => (string) $bien->id],
                     "ImmoPro Admin — Nouveau bien soumis : {$nomBien}",

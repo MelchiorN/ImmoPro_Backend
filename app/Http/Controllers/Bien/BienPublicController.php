@@ -8,6 +8,7 @@ use App\Http\Resources\BienResource;
 use App\Models\Bien;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
 class BienPublicController extends Controller
 {
@@ -16,6 +17,38 @@ class BienPublicController extends Controller
     // Liste publique des biens publiés, avec filtres et pagination
     // ─────────────────────────────────────────────────────────────────────────
 
+    #[OA\Get(
+        path: "/biens",
+        tags: ["Biens Immobiliers (Public)"],
+        summary: "Lister les biens publiés",
+        description: "Retourne la liste paginée des biens immobiliers publiés. Accessible sans authentification.",
+        operationId: "listBiensPublics",
+        parameters: [
+            new OA\Parameter(name: "type_bien", in: "query", description: "Type de bien", required: false, schema: new OA\Schema(type: "string")),
+            new OA\Parameter(name: "type_transaction", in: "query", description: "Type de transaction", required: false, schema: new OA\Schema(type: "string", enum: ["vente", "location", "colocation"])),
+            new OA\Parameter(name: "prix_min", in: "query", description: "Prix minimum", required: false, schema: new OA\Schema(type: "number")),
+            new OA\Parameter(name: "prix_max", in: "query", description: "Prix maximum", required: false, schema: new OA\Schema(type: "number")),
+            new OA\Parameter(name: "surface_min", in: "query", description: "Surface min (m²)", required: false, schema: new OA\Schema(type: "number")),
+            new OA\Parameter(name: "ville", in: "query", description: "Ville / Adresse", required: false, schema: new OA\Schema(type: "string")),
+            new OA\Parameter(name: "search", in: "query", description: "Recherche textuelle", required: false, schema: new OA\Schema(type: "string")),
+            new OA\Parameter(name: "sort", in: "query", description: "Tri", required: false, schema: new OA\Schema(type: "string", enum: ["prix_asc", "prix_desc", "date_desc", "surface_desc"])),
+            new OA\Parameter(name: "per_page", in: "query", description: "Éléments par page", required: false, schema: new OA\Schema(type: "integer"))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Liste récupérée avec succès",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(type: "object")),
+                        new OA\Property(property: "meta", ref: "#/components/schemas/PaginationMeta")
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: "Filtres invalides")
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         // Tente l'authentification silencieuse pour enregistrer l'historique de recherche
@@ -144,6 +177,29 @@ class BienPublicController extends Controller
     // de déverrouiller latitude/longitude pour les clients ayant payé la visite.
     // ─────────────────────────────────────────────────────────────────────────
 
+    #[OA\Get(
+        path: "/biens/{id}",
+        tags: ["Biens Immobiliers (Public)"],
+        summary: "Détail d'un bien publié",
+        description: "Retourne le détail complet d'un bien immobilier publié.",
+        operationId: "showBienPublic",
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, description: "ID du bien", schema: new OA\Schema(type: "integer", example: 42))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Détail du bien récupéré",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "data", type: "object")
+                    ]
+                )
+            ),
+            new OA\Response(response: 404, description: "Bien introuvable")
+        ]
+    )]
     public function show(Request $request, string $id): JsonResponse
     {
         // Tente de résoudre l'utilisateur depuis le token Bearer si présent,

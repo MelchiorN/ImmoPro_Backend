@@ -11,6 +11,7 @@ use App\Models\ConfigChampDeposant;
 use App\Models\ConfigDocParRole;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -59,6 +60,8 @@ class ConfigPublicationFormController extends Controller
             'ordre'               => $request->input('ordre', ConfigTypeTransaction::max('ordre') + 1),
         ]);
 
+        $this->clearCache();
+
         return response()->json(['success' => true, 'message' => 'Type de transaction créé.', 'data' => $this->formatTransaction($item)], 201);
     }
 
@@ -74,6 +77,8 @@ class ConfigPublicationFormController extends Controller
         ]);
         $item->update($request->only(['nom', 'description', 'est_location', 'demande_unite_prix', 'ordre']));
 
+        $this->clearCache();
+
         return response()->json(['success' => true, 'message' => 'Mis à jour.', 'data' => $this->formatTransaction($item->fresh())]);
     }
 
@@ -81,6 +86,9 @@ class ConfigPublicationFormController extends Controller
     {
         $item = ConfigTypeTransaction::findOrFail($id);
         $item->update(['actif' => !$item->actif]);
+
+        $this->clearCache();
+
         return response()->json(['success' => true, 'message' => $item->actif ? 'Activé.' : 'Désactivé.', 'data' => $this->formatTransaction($item)]);
     }
 
@@ -88,6 +96,9 @@ class ConfigPublicationFormController extends Controller
     {
         $item = ConfigTypeTransaction::findOrFail($id);
         $item->delete();
+
+        $this->clearCache();
+
         return response()->json(['success' => true, 'message' => 'Supprimé.']);
     }
 
@@ -475,6 +486,16 @@ class ConfigPublicationFormController extends Controller
     public function destroyDocRole(string $roleId, string $docId): JsonResponse
     {
         ConfigDocParRole::where('role_id', $roleId)->findOrFail($docId)->delete();
+        $this->clearCache();
         return response()->json(['success' => true, 'message' => 'Document retiré du rôle.']);
+    }
+
+    private function clearCache(): void
+    {
+        Cache::forget('config_formulaire_full');
+        Cache::forget('config_transactions');
+        Cache::forget('config_unites_prix');
+        Cache::forget('config_types_document');
+        Cache::forget('config_roles_deposant');
     }
 }

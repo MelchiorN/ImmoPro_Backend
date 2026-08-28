@@ -35,7 +35,7 @@ class NouveauMessageMail extends Mailable
         ) ?: 'Un client';
 
         return new Envelope(
-            subject: "💬 Nouveau message de {$expediteurNom} — ImmoPro",
+            subject: "Nouveau message de {$expediteurNom} — ImmoPro",
         );
     }
 

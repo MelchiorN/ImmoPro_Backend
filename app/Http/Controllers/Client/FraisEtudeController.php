@@ -330,13 +330,13 @@ class FraisEtudeController extends Controller
             // 6. Notifier le client (push + email)
             try {
                 $emailBody = \App\Services\EmailTemplateService::generic(
-                    titre: '✅ Frais d\'étude confirmés',
+                    titre: 'Frais d\'étude confirmés',
                     intro: "Le paiement de vos frais d'étude a été confirmé avec succès. Votre dossier est maintenant en cours d'analyse par notre équipe.",
                     rows: [
-                        ['icon' => '🏠', 'label' => 'Bien',        'value' => $bien->titre],
-                        ['icon' => '💰', 'label' => 'Frais payés', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
-                        ['icon' => '🧾', 'label' => 'N° Reçu',     'value' => $recu->numero_recu],
-                        ['icon' => '⏳', 'label' => 'Statut',      'value' => 'En cours d\'analyse'],
+                        ['icon' => 'home',   'label' => 'Bien',        'value' => $bien->titre],
+                        ['icon' => 'money',  'label' => 'Frais payés', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                        ['icon' => 'doc',    'label' => 'N° Reçu',     'value' => $recu->numero_recu],
+                        ['icon' => 'status', 'label' => 'Statut',      'value' => 'En cours d\'analyse'],
                     ],
                     outro: 'Délai de vérification estimé : 24 à 48 heures. Vous serez notifié dès qu\'une décision sera prise.'
                 );

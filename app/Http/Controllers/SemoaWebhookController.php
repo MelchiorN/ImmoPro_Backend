@@ -102,14 +102,14 @@ class SemoaWebhookController extends Controller
                         $titreNotif,
                         $msgNotif,
                         ['paiement_id' => (string) $paiement->id, 'type' => $paiement->type_paiement],
-                        "❌ {$titreNotif} — ImmoPro",
+                        "{$titreNotif} — ImmoPro",
                         EmailTemplateService::generic(
                             $titreNotif,
                             $msgNotif,
                             [
-                                ['icon' => '💳', 'label' => 'Montant', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
-                                ['icon' => '📱', 'label' => 'Opérateur', 'value' => $paiement->operateur_paiement ?? '—'],
-                                ['icon' => '🔢', 'label' => 'Statut Semoa', 'value' => $status],
+                                ['icon' => 'card',   'label' => 'Montant',      'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                                ['icon' => 'phone',  'label' => 'Opérateur',    'value' => $paiement->operateur_paiement ?? '—'],
+                                ['icon' => 'status', 'label' => 'Statut Semoa', 'value' => $status],
                             ],
                             null,
                             'Si vous pensez qu\'il s\'agit d\'une erreur, contactez notre support.'
@@ -213,19 +213,19 @@ class SemoaWebhookController extends Controller
                     app(NotificationService::class)->notify(
                         $location->locataire,
                         'paiement_confirme',
-                        '✅ Paiement confirmé !',
+                        'Paiement confirmé',
                         "Votre paiement de location pour \"{$location->bien?->titre}\" a été confirmé. Votre location est maintenant active.",
                         ['location_id' => (string) $location->id, 'recu' => $numeroRecu],
-                        '✅ Votre paiement de location est confirmé — ImmoPro',
+                        'Votre paiement de location est confirmé — ImmoPro',
                         EmailTemplateService::generic(
-                            'Paiement de location confirmé !',
+                            'Paiement de location confirmé',
                             "Votre paiement pour la location du bien <strong>{$location->bien?->titre}</strong> a été reçu et confirmé avec succès.",
                             [
-                                ['icon' => '🏠', 'label' => 'Bien',          'value' => $location->bien?->titre ?? '—'],
-                                ['icon' => '📅', 'label' => 'Durée',         'value' => $location->duree_mois . ' mois'],
-                                ['icon' => '💰', 'label' => 'Montant payé',  'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
-                                ['icon' => '💳', 'label' => 'Opérateur',     'value' => $operateurLabel],
-                                ['icon' => '🧾', 'label' => 'Reçu',          'value' => $numeroRecu],
+                                ['icon' => 'home',  'label' => 'Bien',         'value' => $location->bien?->titre ?? '—'],
+                                ['icon' => 'cal',   'label' => 'Durée',        'value' => $location->duree_mois . ' mois'],
+                                ['icon' => 'money', 'label' => 'Montant payé', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                                ['icon' => 'card',  'label' => 'Opérateur',    'value' => $operateurLabel],
+                                ['icon' => 'doc',   'label' => 'Reçu',         'value' => $numeroRecu],
                             ],
                             null,
                             'Votre location est désormais active. Contactez votre propriétaire pour les prochaines étapes.'
@@ -316,21 +316,21 @@ class SemoaWebhookController extends Controller
                 app(NotificationService::class)->notify(
                     $user,
                     'abonnement_active',
-                    '🎉 Abonnement activé !',
+                    'Abonnement activé',
                     $messageFusion,
                     ['abonnement_id' => $abonnementResultat->id],
-                    '🎉 Votre abonnement ImmoPro est actif !',
+                    'Votre abonnement ImmoPro est actif',
                     EmailTemplateService::generic(
-                        'Abonnement activé avec succès !',
+                        'Abonnement activé avec succès',
                         $estFusionne
                             ? "Vos nouvelles publications ont été ajoutées à votre abonnement <strong>{$abonnementResultat->plan->nom}</strong> en cours."
                             : "Votre abonnement <strong>{$userAbonnement->plan->nom}</strong> est maintenant actif. Vous pouvez dès à présent publier vos annonces immobilières.",
                         [
-                            ['icon' => '📦', 'label' => 'Plan',                    'value' => $userAbonnement->plan->nom],
-                            ['icon' => '📋', 'label' => 'Publications disponibles','value' => $abonnementResultat->nb_publications_restantes . ' publication(s)'],
-                            ['icon' => '🧾', 'label' => 'Reçu',                   'value' => $recu->numero_recu],
-                            ['icon' => '💳', 'label' => 'Opérateur',              'value' => $operateurLabel],
-                            ['icon' => '💰', 'label' => 'Montant payé',           'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                            ['icon' => 'doc',   'label' => 'Plan',                    'value' => $userAbonnement->plan->nom],
+                            ['icon' => 'status', 'label' => 'Publications disponibles','value' => $abonnementResultat->nb_publications_restantes . ' publication(s)'],
+                            ['icon' => 'doc',   'label' => 'Reçu',                   'value' => $recu->numero_recu],
+                            ['icon' => 'card',  'label' => 'Opérateur',              'value' => $operateurLabel],
+                            ['icon' => 'money', 'label' => 'Montant payé',           'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
                         ],
                         null,
                         'Merci de votre confiance ! Rendez-vous sur l\'application pour publier vos annonces.'
@@ -523,17 +523,17 @@ class SemoaWebhookController extends Controller
                     app(NotificationService::class)->notify(
                         $client,
                         'visite_payee',
-                        '✅ Paiement de visite confirmé !',
+                        'Paiement de demande de visite confirmé',
                         "Votre paiement pour la visite de « {$bien->titre} » a été confirmé. La localisation exacte est maintenant déverrouillée.",
                         ['visite_id' => $visite->id, 'bien_id' => $bien->id],
-                        '✅ Visite confirmée — ImmoPro',
+                        'Demande de visite confirmée — ImmoPro',
                         \App\Services\EmailTemplateService::generic(
-                            'Frais de visite confirmés !',
+                            'Demande de visite confirmée',
                             "Votre paiement pour visiter <strong>{$bien->titre}</strong> a été reçu et confirmé. Vous pouvez maintenant voir la localisation exacte et planifier votre visite.",
                             [
-                                ['icon' => '🏠', 'label' => 'Bien',           'value' => $bien->titre],
-                                ['icon' => '💰', 'label' => 'Montant payé',   'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
-                                ['icon' => '🧾', 'label' => 'Reçu',           'value' => $numeroRecu],
+                                ['icon' => 'home',  'label' => 'Bien',         'value' => $bien->titre],
+                                ['icon' => 'money', 'label' => 'Montant payé', 'value' => number_format((float) $paiement->montant, 0, ',', ' ') . ' FCFA'],
+                                ['icon' => 'doc',   'label' => 'Reçu',         'value' => $numeroRecu],
                             ],
                             null,
                             'Connectez-vous à l\'application pour voir la localisation et planifier votre visite.'

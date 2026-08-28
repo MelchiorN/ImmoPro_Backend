@@ -245,9 +245,9 @@ class AgentVisiteController extends Controller
 
         if ($bien->proprietaire) {
             $html = EmailTemplateService::generic(
-                titre: '📅 Créneaux de visite disponibles',
+                titre: 'Créneaux de visite disponibles',
                 intro: "{$nomAgent} vous propose {$nb} créneau(x) pour la vérification de votre bien « {$bien->titre} ».",
-                rows:  [['icon' => '🏠', 'label' => 'Bien', 'value' => $bien->titre]],
+                rows:  [['icon' => 'home', 'label' => 'Bien', 'value' => $bien->titre]],
                 outro: 'Connectez-vous à votre espace pour choisir le créneau qui vous convient.'
             );
             $this->notifService->notify(
@@ -420,9 +420,9 @@ class AgentVisiteController extends Controller
             $emailHtml = EmailTemplateService::generic(
                 titre: $titreProprio, intro: $msgProprio,
                 rows:  [
-                    ['icon' => '🏠', 'label' => 'Bien',  'value' => $bien->titre],
-                    ['icon' => '📅', 'label' => 'Date',  'value' => $dateVisite ?? '—'],
-                    ['icon' => '👤', 'label' => 'Agent', 'value' => $nomAgent],
+                    ['icon' => 'home', 'label' => 'Bien',  'value' => $bien->titre],
+                    ['icon' => 'cal',  'label' => 'Date',  'value' => $dateVisite ?? '—'],
+                    ['icon' => 'user', 'label' => 'Agent', 'value' => $nomAgent],
                 ],
             );
             $this->notifService->notify(
@@ -436,8 +436,8 @@ class AgentVisiteController extends Controller
             $agentHtml = EmailTemplateService::generic(
                 titre: $titreAgent, intro: $msgAgent,
                 rows:  [
-                    ['icon' => '🏠', 'label' => 'Bien', 'value' => $bien?->titre ?? ''],
-                    ['icon' => '📅', 'label' => 'Date', 'value' => $dateVisite ?? '—'],
+                    ['icon' => 'home', 'label' => 'Bien', 'value' => $bien?->titre ?? ''],
+                    ['icon' => 'cal',  'label' => 'Date', 'value' => $dateVisite ?? '—'],
                 ],
             );
             $this->notifService->notify(
@@ -455,10 +455,10 @@ class AgentVisiteController extends Controller
                 EmailTemplateService::generic(
                     titre: 'Mise à jour de visite', intro: $msgAdmin,
                     rows: [
-                        ['icon' => '🏠', 'label' => 'Bien',          'value' => $bien?->titre ?? ''],
-                        ['icon' => '👤', 'label' => 'Agent',         'value' => $nomAgent],
-                        ['icon' => '📅', 'label' => 'Date',          'value' => $dateVisite ?? '—'],
-                        ['icon' => '📋', 'label' => 'Nouveau statut','value' => $request->input('statut')],
+                        ['icon' => 'home',   'label' => 'Bien',           'value' => $bien?->titre ?? ''],
+                        ['icon' => 'user',   'label' => 'Agent',          'value' => $nomAgent],
+                        ['icon' => 'cal',    'label' => 'Date',           'value' => $dateVisite ?? '—'],
+                        ['icon' => 'status', 'label' => 'Nouveau statut', 'value' => $request->input('statut')],
                     ],
                 )
             );
@@ -616,24 +616,24 @@ class AgentVisiteController extends Controller
             $lignesCreneaux = collect($creneaux)->map(function ($c, $i) {
                 $d = Carbon::parse($c['date_debut'])->locale('fr');
                 return [
-                    'icon'  => '📅',
+                    'icon'  => 'cal',
                     'label' => 'Option ' . ($i + 1),
                     'value' => $d->isoFormat('ddd D MMM [à] HH[h]mm') . ' (' . $c['duree_minutes'] . ' min)',
                 ];
             })->all();
 
             $html = EmailTemplateService::generic(
-                titre: '📅 Créneaux de visite disponibles !',
+                titre: 'Créneaux de visite disponibles',
                 intro: "{$nomAgent} vous propose {$nb} créneau(x) pour visiter « {$bien?->titre} ». Choisissez celui qui vous convient.",
                 rows:  array_merge(
-                    [['icon' => '🏠', 'label' => 'Bien', 'value' => $bien?->titre ?? '']],
+                    [['icon' => 'home', 'label' => 'Bien', 'value' => $bien?->titre ?? '']],
                     $lignesCreneaux
                 ),
                 outro: 'Connectez-vous à l\'application pour choisir votre créneau.',
             );
             $this->notifService->notify(
                 $client, 'creneaux_agent_proposes',
-                'Créneaux de visite proposés !',
+                'Créneaux de visite proposés',
                 "{$nomAgent} vous propose {$nb} créneau(x) pour « {$bien?->titre} ».",
                 ['visite_id' => $visite->id, 'bien_id' => $bien?->id, 'nb_creneaux' => $nb],
                 "ImmoPro — Créneaux disponibles pour « {$bien?->titre} »", $html

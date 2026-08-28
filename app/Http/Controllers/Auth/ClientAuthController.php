@@ -14,12 +14,46 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use OpenApi\Attributes as OA;
 
 class ClientAuthController extends Controller
 {
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/client/login
     // ─────────────────────────────────────────────────────────────────────────
+    #[OA\Post(
+        path: "/client/login",
+        tags: ["Authentification Client"],
+        summary: "Connexion client",
+        description: "Authentifie un utilisateur avec le rôle client. Retourne un token Sanctum.",
+        operationId: "clientLogin",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email", "password"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email", example: "marie.kone@email.com"),
+                    new OA\Property(property: "password", type: "string", format: "password", example: "MonMotDePasse123")
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Connexion réussie",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Connexion réussie."),
+                        new OA\Property(property: "token", type: "string", example: "1|xK3mZ9pQ2rL7nY8sV1jW..."),
+                        new OA\Property(property: "user", ref: "#/components/schemas/UserResource")
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: "Compte suspendu/bloqué ou email non vérifié"),
+            new OA\Response(response: 422, description: "Email ou mot de passe incorrect")
+        ]
+    )]
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -85,6 +119,39 @@ class ClientAuthController extends Controller
     // Étape 2 de l'inscription : vérifier OTP → créer le compte → retourner token
     // Body attendu : { email, otp, pending_token }
     // ─────────────────────────────────────────────────────────────────────────
+    #[OA\Post(
+        path: "/verify-otp",
+        tags: ["Authentification Client"],
+        summary: "Vérification OTP & création du compte (étape 2/2)",
+        description: "Vérifie le code OTP reçu par email et crée le compte client.",
+        operationId: "verifyOtp",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email", "otp", "pending_token"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email", example: "marie.kone@email.com"),
+                    new OA\Property(property: "otp", type: "string", minLength: 6, maxLength: 6, example: "482731"),
+                    new OA\Property(property: "pending_token", type: "string", example: "xK3mZ9pQ2rL7nY8sV1jW4tU6bO0cE5fA")
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 201,
+                description: "Compte créé avec succès",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Compte créé avec succès."),
+                        new OA\Property(property: "token", type: "string", example: "2|vR9kP5oN3mQ1eJ8dH..."),
+                        new OA\Property(property: "user", ref: "#/components/schemas/UserResource")
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: "Code OTP invalide/expiré")
+        ]
+    )]
     public function verifyOtp(Request $request): JsonResponse
     {
         $request->validate([
@@ -171,6 +238,36 @@ class ClientAuthController extends Controller
     // Renvoie un nouveau code OTP (utile si expiré)
     // Body attendu : { email }
     // ─────────────────────────────────────────────────────────────────────────
+    #[OA\Post(
+        path: "/resend-otp",
+        tags: ["Authentification Client"],
+        summary: "Renvoyer un code OTP",
+        description: "Génère et renvoie un nouveau code OTP par email.",
+        operationId: "resendOtp",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email", example: "marie.kone@email.com"),
+                    new OA\Property(property: "pending_token", type: "string", nullable: true, example: "xK3mZ9pQ2rL7nY8sV1jW4tU6bO0cE5fA")
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Nouveau OTP envoyé",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Un nouveau code OTP a été envoyé.")
+                    ]
+                )
+            ),
+            new OA\Response(response: 404, description: "Aucune inscription en attente")
+        ]
+    )]
     public function resendOtp(Request $request): JsonResponse
     {
         $request->validate([
@@ -217,6 +314,26 @@ class ClientAuthController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/client/me
     // ─────────────────────────────────────────────────────────────────────────
+    #[OA\Get(
+        path: "/client/me",
+        tags: ["Authentification Client"],
+        summary: "Profil du client connecté",
+        operationId: "clientMe",
+        security: [["bearerAuth" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Profil récupéré avec succès",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "user", ref: "#/components/schemas/UserResource")
+                    ]
+                )
+            ),
+            new OA\Response(response: 401, description: "Non authentifié")
+        ]
+    )]
     public function me(Request $request): JsonResponse
     {
         return response()->json([
@@ -228,6 +345,26 @@ class ClientAuthController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/client/logout
     // ─────────────────────────────────────────────────────────────────────────
+    #[OA\Post(
+        path: "/client/logout",
+        tags: ["Authentification Client"],
+        summary: "Déconnexion client",
+        operationId: "clientLogout",
+        security: [["bearerAuth" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Déconnexion réussie",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "success", type: "boolean", example: true),
+                        new OA\Property(property: "message", type: "string", example: "Déconnexion réussie.")
+                    ]
+                )
+            ),
+            new OA\Response(response: 401, description: "Non authentifié")
+        ]
+    )]
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();

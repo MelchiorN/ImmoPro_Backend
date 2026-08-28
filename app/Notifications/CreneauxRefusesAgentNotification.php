@@ -32,7 +32,7 @@ class CreneauxRefusesAgentNotification extends Notification implements ShouldQue
         $titreBien = $this->visite->bien?->titre ?? '';
 
         $mail = (new MailMessage)
-            ->subject('❌ Créneaux refusés — ' . $titreBien)
+            ->subject('Créneaux refusés — ' . $titreBien)
             ->greeting("Bonjour {$prenom},")
             ->line("Le propriétaire a refusé tous les créneaux proposés pour le bien « {$titreBien} ».");
 

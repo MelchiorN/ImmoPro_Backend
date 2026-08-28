@@ -33,14 +33,14 @@ class DecisionBienNotification extends Notification implements ShouldQueue
 
         if ($this->decision === 'approuve') {
             return (new MailMessage)
-                ->subject('✅ Votre bien est publié — ' . $this->bien->titre)
+                ->subject('Votre bien est publié — ' . $this->bien->titre)
                 ->greeting("Bonjour {$prenom},")
                 ->line('Bonne nouvelle ! Votre bien « ' . $this->bien->titre . ' » a été approuvé et est maintenant publié sur la plateforme.')
                 ->action('Voir mon annonce', url('/biens/' . $this->bien->id));
         }
 
         return (new MailMessage)
-            ->subject('❌ Votre bien a été rejeté — ' . $this->bien->titre)
+            ->subject('Votre bien a été rejeté — ' . $this->bien->titre)
             ->greeting("Bonjour {$prenom},")
             ->line('Après vérification, votre bien « ' . $this->bien->titre . ' » ne peut pas être publié.')
             ->line('Motif : ' . ($this->motif ?? '—'))
