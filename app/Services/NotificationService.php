@@ -376,11 +376,27 @@ class NotificationService
     private function sendEmail(string $emailAddress, string $subject, string $htmlBody): void
     {
         try {
+            Log::info("[NotificationService] Tentative envoi email", [
+                'to'      => $emailAddress,
+                'subject' => $subject,
+                'mailer'  => config('mail.default'),
+                'host'    => config('mail.mailers.smtp.host'),
+                'port'    => config('mail.mailers.smtp.port'),
+                'from'    => config('mail.from.address'),
+            ]);
+
             Mail::html($htmlBody, function ($message) use ($emailAddress, $subject) {
                 $message->to($emailAddress)->subject($subject);
             });
+
+            Log::info("[NotificationService] Email envoyé avec succès à {$emailAddress}");
         } catch (\Throwable $e) {
-            Log::warning("[NotificationService] Email non envoyé à {$emailAddress} : {$e->getMessage()}");
+            Log::error("[NotificationService] Email ÉCHEC à {$emailAddress}", [
+                'subject'   => $subject,
+                'error'     => $e->getMessage(),
+                'exception' => get_class($e),
+                'trace'     => $e->getTraceAsString(),
+            ]);
         }
     }
 

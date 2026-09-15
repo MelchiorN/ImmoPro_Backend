@@ -48,6 +48,23 @@ echo "✅ Config prête."
 php artisan storage:link --force 2>/dev/null || true
 echo "✅ Storage link créé."
 
-# ── 7. Démarrer Apache ───────────────────────────────────────────────────────
+# ── 7. Diagnostic configuration Email ────────────────────────────────────────
+echo "📧 ── Diagnostic Mail ─────────────────────────────"
+echo "   MAIL_MAILER      = ${MAIL_MAILER:-[NON DEFINI]}"
+echo "   MAIL_HOST        = ${MAIL_HOST:-[NON DEFINI]}"
+echo "   MAIL_PORT        = ${MAIL_PORT:-[NON DEFINI]}"
+echo "   MAIL_USERNAME    = ${MAIL_USERNAME:-[NON DEFINI]}"
+echo "   MAIL_ENCRYPTION  = ${MAIL_ENCRYPTION:-[NON DEFINI]}"
+echo "   MAIL_FROM_ADDRESS= ${MAIL_FROM_ADDRESS:-[NON DEFINI]}"
+if [ -z "$MAIL_MAILER" ] || [ "$MAIL_MAILER" = "log" ]; then
+    echo "   ⚠️  MAIL_MAILER est 'log' ou absent — les emails seront loggués, PAS envoyés !"
+elif [ -z "$MAIL_USERNAME" ]; then
+    echo "   ⚠️  MAIL_USERNAME absent — authentification SMTP impossible !"
+else
+    echo "   ✅ Configuration mail détectée."
+fi
+echo "──────────────────────────────────────────────────────"
+
+# ── 8. Démarrer Apache ───────────────────────────────────────────────────────
 echo "🌐 Démarrage Apache..."
 exec apache2-foreground
