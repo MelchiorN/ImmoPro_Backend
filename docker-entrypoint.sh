@@ -23,8 +23,6 @@ mkdir -p \
     storage/logs \
     bootstrap/cache
 
-chown -R www-data:www-data storage bootstrap/cache
-chmod -R 775 storage bootstrap/cache
 
 # ── 3. Générer APP_KEY si absent ─────────────────────────────────────────────
 if [ -z "$APP_KEY" ]; then
@@ -65,6 +63,11 @@ else
 fi
 echo "──────────────────────────────────────────────────────"
 
-# ── 8. Démarrer Apache ───────────────────────────────────────────────────────
+# ── 8. Correction finale des permissions ───────────────────────────────────────
+echo "🔐 Ajustement des permissions pour www-data..."
+chown -R www-data:www-data storage bootstrap/cache
+chmod -R 775 storage bootstrap/cache
+
+# ── 9. Démarrer Apache ───────────────────────────────────────────────────────
 echo "🌐 Démarrage Apache..."
 exec apache2-foreground
