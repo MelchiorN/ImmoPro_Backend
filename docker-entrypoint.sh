@@ -34,8 +34,11 @@ fi
 
 # ── 4. Vider et reconstruire le cache de config ──────────────────────────────
 php artisan config:clear
-php artisan config:cache
-echo "✅ Config cachée."
+
+# Note: config:cache est incompatible avec L5-Swagger (ReflectionAnalyser non sérialisable)
+# On tente le cache mais on ignore l'erreur si elle se produit
+php artisan config:cache 2>/dev/null || echo "⚠️  config:cache ignoré (L5-Swagger incompatible) — l'app fonctionne sans cache."
+echo "✅ Config prête."
 
 # ── 5. Lancer les migrations ─────────────────────────────────────────────────
 # php artisan migrate --force --no-interaction
