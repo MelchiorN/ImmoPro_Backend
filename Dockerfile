@@ -18,25 +18,23 @@ RUN a2enmod rewrite
 # Répertoire de travail
 WORKDIR /var/www/html
 
-# Copier le projet
+# Copier le projet (sauf ce qui est dans .dockerignore)
 COPY . .
 
 # Installer Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Installer les dépendances Laravel
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Installer les dépendances Laravel (sans scripts pour éviter artisan au build)
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
-# Storage et cache
-RUN php artisan storage:link
-
-# Permissions Laravel
+# Créer les dossiers storage nécessaires (sans artisan)
 RUN mkdir -p \
     storage/framework/cache \
     storage/framework/sessions \
     storage/framework/views \
     storage/logs \
     bootstrap/cache \
+    storage/app/firebase \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
@@ -52,6 +50,10 @@ RUN printf '<Directory /var/www/html/public>\n\
 
 RUN a2enconf laravel
 
+# Copier et rendre exécutable le script d'entrée
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 80
 
-CMD ["apache2-foreground"]
+CMD ["/usr/local/bin/docker-entrypoint.sh"]

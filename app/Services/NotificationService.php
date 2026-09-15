@@ -331,19 +331,42 @@ class NotificationService
 
     private function loadServiceAccount(): array
     {
+        // ── Priorité 1 : fichier sur le disque ───────────────────────────────
         $path = storage_path('app/firebase/immopro.json');
 
-        if (! file_exists($path)) {
-            throw new \RuntimeException("Fichier Service Account Firebase introuvable : {$path}");
+        if (file_exists($path)) {
+            $content = json_decode(file_get_contents($path), true);
+
+            if (json_last_error() === JSON_ERROR_NONE && ! empty($content['private_key'])) {
+                return $content;
+            }
         }
 
-        $content = json_decode(file_get_contents($path), true);
-
-        if (json_last_error() !== JSON_ERROR_NONE || empty($content['private_key'])) {
-            throw new \RuntimeException('Fichier Service Account Firebase invalide.');
+        // ── Priorité 2 : variable d'environnement Base64 (déploiement Docker) ─
+        $base64 = env('FIREBASE_CREDENTIALS_BASE64');
+        if ($base64) {
+            $decoded = base64_decode($base64, true);
+            if ($decoded !== false) {
+                $content = json_decode($decoded, true);
+                if (json_last_error() === JSON_ERROR_NONE && ! empty($content['private_key'])) {
+                    // Écrire le fichier sur disque pour les prochains appels (perf)
+                    try {
+                        if (! is_dir(dirname($path))) {
+                            mkdir(dirname($path), 0775, true);
+                        }
+                        file_put_contents($path, $decoded);
+                    } catch (\Throwable) {
+                        // Écriture optionnelle — on continue sans cache disque
+                    }
+                    return $content;
+                }
+            }
         }
 
-        return $content;
+        throw new \RuntimeException(
+            'Fichier Service Account Firebase introuvable. ' .
+            'Vérifiez storage/app/firebase/immopro.json ou la variable FIREBASE_CREDENTIALS_BASE64.'
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
