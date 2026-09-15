@@ -269,24 +269,25 @@ class BrouillonBienController extends Controller
             $existing = MediaBien::where('bien_id', $bien->id)->get();
             foreach ($existing as $media) {
                 if ($media->chemin) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete($media->chemin);
+                    $backend = \App\Services\MediaStorageService::backendFromChemin($media->chemin);
+                    app(\App\Services\MediaStorageService::class)->delete($media->chemin, $backend);
                 }
             }
             MediaBien::where('bien_id', $bien->id)->delete();
         }
 
+        $mediaService = app(\App\Services\MediaStorageService::class);
         $currentCount = $replace ? 0 : MediaBien::where('bien_id', $bien->id)->count();
         foreach ($files as $index => $fichier) {
             $mime    = $fichier->getMimeType();
             $isVideo = str_starts_with($mime, 'video/');
             $dossier = "biens/{$bien->id}/medias";
-            $chemin  = $fichier->store($dossier, 'public');
+            $upload  = $mediaService->upload($fichier, $dossier);
 
             MediaBien::create([
                 'bien_id'        => $bien->id,
                 'type'           => $isVideo ? 'video' : 'photo',
-                'chemin'         => $chemin,
-                'url'            => \Illuminate\Support\Facades\Storage::disk('public')->url($chemin),
+                'chemin'         => $upload['chemin'],
                 'est_principale' => ($currentCount + $index) === 0,
                 'ordre'          => $currentCount + $index,
                 'taille'         => $fichier->getSize(),
@@ -310,7 +311,7 @@ class BrouillonBienController extends Controller
                 DocumentBien::where('bien_id', $bien->id)->where('type', $slug)->delete();
 
                 $dossier = "biens/{$bien->id}/documents";
-                $chemin  = $fichier->store($dossier, 'local');
+                $chemin  = app(\App\Services\MediaStorageService::class)->uploadDocument($fichier, $dossier);
 
                 DocumentBien::create([
                     'bien_id'      => $bien->id,
@@ -332,7 +333,7 @@ class BrouillonBienController extends Controller
         foreach ($autresFiles as $fichier) {
             if (!$fichier) continue;
             $dossier = "biens/{$bien->id}/documents";
-            $chemin  = $fichier->store($dossier, 'local');
+            $chemin  = app(\App\Services\MediaStorageService::class)->uploadDocument($fichier, $dossier);
             DocumentBien::create([
                 'bien_id'      => $bien->id,
                 'type'         => 'autre',

@@ -8,17 +8,17 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Service de stockage des médias (photos/vidéos des biens).
+ * Service de stockage des médias (photos/vidéos des biens), photos de profil et documents.
  *
- * ─ En local (APP_ENV=local)      : disk 'public' (storage/app/public)
+ * ─ En local (APP_ENV=local)      : disk 'public' / 'local' (storage/app/public)
  * ─ En production (APP_ENV!=local): Cloudinary via API HTTP (pas de package)
  *
- * Retourne toujours un tableau :
- *   [
- *     'chemin'  => string,   // chemin relatif (local) ou public_id (cloudinary)
- *     'url'     => string,   // URL publique accessible
- *     'backend' => string,   // 'local' | 'cloudinary'
- *   ]
+ * Méthodes disponibles :
+ *   upload()        → médias publics des biens (photos/vidéos)
+ *   uploadProfile() → photo de profil utilisateur
+ *   uploadDocument()→ documents privés (stockage local uniquement, jamais Cloudinary)
+ *   delete()        → suppression selon backend
+ *   url()           → URL publique
  */
 class MediaStorageService
 {
@@ -33,6 +33,61 @@ class MediaStorageService
         }
 
         return $this->uploadCloudinary($fichier, $dossier);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Photo de profil utilisateur
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Upload une photo de profil.
+     * Retourne l'URL publique directement (toujours une URL complète).
+     */
+    public function uploadProfile(UploadedFile $fichier, int|string $userId): string
+    {
+        $dossier = "profiles/{$userId}";
+
+        if (app()->isLocal()) {
+            $path = $fichier->store($dossier, 'public');
+            return Storage::disk('public')->url($path);
+        }
+
+        // Production → Cloudinary (dossier profiles/)
+        $result = $this->uploadCloudinary($fichier, $dossier);
+        return $result['url'];
+    }
+
+    /**
+     * Supprime l'ancienne photo de profil (URL ou chemin).
+     */
+    public function deleteProfile(?string $urlOrPath): void
+    {
+        if (! $urlOrPath) return;
+
+        $backend = self::backendFromChemin($urlOrPath);
+
+        if ($backend === 'cloudinary') {
+            $this->deleteCloudinary($urlOrPath);
+        } else {
+            // Chemin local : extraire le path relatif depuis l'URL
+            $path = ltrim(parse_url($urlOrPath, PHP_URL_PATH) ?? $urlOrPath, '/storage/');
+            $path = preg_replace('#^storage/#', '', $path);
+            Storage::disk('public')->delete($path);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Documents privés (jamais sur Cloudinary — toujours local)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Upload un document privé (PDF, pièce d'identité, etc.).
+     * Toujours stocké localement (disk 'local') même en production.
+     * Retourne le chemin relatif.
+     */
+    public function uploadDocument(UploadedFile $fichier, string $dossier): string
+    {
+        return $fichier->store($dossier, 'local');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

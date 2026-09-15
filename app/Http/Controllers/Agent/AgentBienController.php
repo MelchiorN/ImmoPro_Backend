@@ -451,17 +451,18 @@ class AgentBienController extends Controller
         ]);
 
         $added = [];
+        $mediaService = app(\App\Services\MediaStorageService::class);
         foreach ($request->file('medias') as $fichier) {
             $mime    = $fichier->getMimeType();
             $isVideo = str_starts_with($mime, 'video/');
             $dossier = "biens/{$bien->id}/medias";
-            $chemin  = $fichier->store($dossier, 'public');
+            $upload  = $mediaService->upload($fichier, $dossier);
             $ordre   = \App\Models\MediaBien::where('bien_id', $bien->id)->max('ordre') + 1;
 
             $media = \App\Models\MediaBien::create([
                 'bien_id'        => $bien->id,
                 'type'           => $isVideo ? 'video' : 'photo',
-                'chemin'         => $chemin,
+                'chemin'         => $upload['chemin'],
                 'est_principale' => false,
                 'ordre'          => $ordre,
                 'taille'         => $fichier->getSize(),
@@ -484,7 +485,9 @@ class AgentBienController extends Controller
 
         $media = \App\Models\MediaBien::where('id', $mediaId)->where('bien_id', $bien->id)->firstOrFail();
 
-        Storage::disk('public')->delete($media->chemin);
+        $mediaService = app(\App\Services\MediaStorageService::class);
+        $backend = \App\Services\MediaStorageService::backendFromChemin($media->chemin);
+        $mediaService->delete($media->chemin, $backend);
         $media->delete();
 
         return response()->json(['success' => true, 'message' => 'Média supprimé.']);
@@ -528,7 +531,7 @@ class AgentBienController extends Controller
 
         $fichier = $request->file('document');
         $dossier = "biens/{$bien->id}/documents";
-        $chemin  = $fichier->store($dossier, 'local');
+        $chemin  = app(\App\Services\MediaStorageService::class)->uploadDocument($fichier, $dossier);
 
         $doc = DocumentBien::create([
             'bien_id'      => $bien->id,

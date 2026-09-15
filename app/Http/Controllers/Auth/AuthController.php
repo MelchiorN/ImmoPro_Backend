@@ -282,14 +282,10 @@ class AuthController extends Controller
             'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
-        if ($user->profile_picture) {
-            $oldPath = str_replace('/storage/', '', parse_url($user->profile_picture, PHP_URL_PATH));
-            Storage::disk('public')->delete($oldPath);
-        }
+        $mediaService = app(\App\Services\MediaStorageService::class);
+        $mediaService->deleteProfile($user->profile_picture);
 
-        $file = $request->file('photo');
-        $path = $file->store("profiles/{$user->id}", 'public');
-        $url  = Storage::disk('public')->url($path);
+        $url = $mediaService->uploadProfile($request->file('photo'), $user->id);
 
         $user->update(['profile_picture' => $url]);
 
