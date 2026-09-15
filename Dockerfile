@@ -27,6 +27,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # Installer les dépendances Laravel (sans scripts pour éviter artisan au build)
 RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
+# Storage
+php artisan storage:link
+
 # Créer les dossiers storage nécessaires (sans artisan)
 RUN mkdir -p \
     storage/framework/cache \
