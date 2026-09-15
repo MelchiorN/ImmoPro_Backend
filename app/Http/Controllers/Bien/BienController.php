@@ -15,6 +15,7 @@ use App\Models\MediaBien;
 use App\Models\Paiement;
 use App\Models\User;
 use App\Services\EmailTemplateService;
+use App\Services\MediaStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -152,16 +153,19 @@ class BienController extends Controller
 
             // ── Médias ────────────────────────────────────────────────────────
             if ($request->hasFile('medias')) {
+                $mediaService = app(MediaStorageService::class);
                 foreach ($request->file('medias') as $index => $fichier) {
                     $mime    = $fichier->getMimeType();
                     $isVideo = str_starts_with($mime, 'video/');
                     $dossier = "biens/{$bien->id}/medias";
-                    $chemin  = $fichier->store($dossier, 'public');
+
+                    // Upload local (dev) ou Cloudinary (prod) selon APP_ENV
+                    $upload = $mediaService->upload($fichier, $dossier);
 
                     MediaBien::create([
                         'bien_id'        => $bien->id,
                         'type'           => $isVideo ? 'video' : 'photo',
-                        'chemin'         => $chemin,
+                        'chemin'         => $upload['chemin'],
                         'est_principale' => $index === 0,
                         'ordre'          => $index,
                         'taille'         => $fichier->getSize(),
@@ -232,7 +236,10 @@ class BienController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             if (isset($bien)) {
-                Storage::disk('public')->deleteDirectory("biens/{$bien->id}/medias");
+                // Nettoyage médias (local uniquement — Cloudinary est nettoyé séparément)
+                if (app()->isLocal()) {
+                    Storage::disk('public')->deleteDirectory("biens/{$bien->id}/medias");
+                }
                 Storage::disk('local')->deleteDirectory("biens/{$bien->id}/documents");
             }
             Log::error('Erreur création bien: ' . $e->getMessage());
@@ -335,21 +342,26 @@ class BienController extends Controller
 
         DB::beginTransaction();
         try {
+            $mediaService = app(MediaStorageService::class);
+
             $anciens = MediaBien::where('bien_id', $bien->id)->get();
             foreach ($anciens as $am) {
-                Storage::disk('public')->delete($am->chemin);
+                $backend = MediaStorageService::backendFromChemin($am->chemin);
+                $mediaService->delete($am->chemin, $backend);
                 $am->delete();
             }
 
             foreach ($request->file('medias') as $index => $fichier) {
                 $mime    = $fichier->getMimeType();
                 $dossier = "biens/{$bien->id}/medias";
-                $chemin  = $fichier->store($dossier, 'public');
+
+                // Upload local (dev) ou Cloudinary (prod) selon APP_ENV
+                $upload = $mediaService->upload($fichier, $dossier);
 
                 MediaBien::create([
                     'bien_id'        => $bien->id,
                     'type'           => 'photo',
-                    'chemin'         => $chemin,
+                    'chemin'         => $upload['chemin'],
                     'est_principale' => $index === 0,
                     'ordre'          => $index,
                     'taille'         => $fichier->getSize(),
